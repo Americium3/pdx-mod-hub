@@ -10,6 +10,13 @@ import {
 import { api, connectEvents } from './api'
 import type { Lang, MsgKey } from './i18n'
 import { translate } from './i18n'
+import {
+  applyTheme,
+  loadThemeMode,
+  saveThemeMode,
+  watchSystemTheme,
+  type ThemeMode,
+} from './theme'
 import type { HubState } from './types'
 
 interface HubContextValue {
@@ -20,6 +27,8 @@ interface HubContextValue {
   setLang: (lang: Lang) => void
   t: (key: MsgKey, vars?: Record<string, string | number>) => string
   helperBusy: boolean
+  themeMode: ThemeMode
+  setThemeMode: (mode: ThemeMode) => void
 }
 
 const HubContext = createContext<HubContextValue | null>(null)
@@ -32,7 +41,18 @@ export function HubProvider({ children }: { children: ReactNode }): ReactNode {
     const saved = localStorage.getItem('pmh.lang')
     return saved === 'zh' ? 'zh' : 'en'
   })
+  const [themeMode, setThemeModeState] = useState<ThemeMode>(loadThemeMode)
   const refreshTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  useEffect(() => {
+    applyTheme(themeMode)
+    return watchSystemTheme(() => themeMode)
+  }, [themeMode])
+
+  const setThemeMode = useCallback((mode: ThemeMode) => {
+    saveThemeMode(mode)
+    setThemeModeState(mode)
+  }, [])
 
   const refresh = useCallback(async () => {
     try {
@@ -81,7 +101,9 @@ export function HubProvider({ children }: { children: ReactNode }): ReactNode {
   )
 
   return (
-    <HubContext.Provider value={{ state, error, refresh, lang, setLang, t, helperBusy }}>
+    <HubContext.Provider
+      value={{ state, error, refresh, lang, setLang, t, helperBusy, themeMode, setThemeMode }}
+    >
       {children}
     </HubContext.Provider>
   )

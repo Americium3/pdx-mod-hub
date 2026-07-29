@@ -123,6 +123,12 @@ const dict = {
     zh: '检查账户拥有哪些P社游戏（短暂「游戏中」闪现）。',
   },
 
+  // theme
+  'theme.auto': { en: 'Follow system', zh: '跟随系统' },
+  'theme.dark': { en: 'Dark', zh: '深色' },
+  'theme.light': { en: 'Light', zh: '浅色' },
+  'settings.theme': { en: 'Theme', zh: '主题' },
+
   // misc
   'misc.never': { en: 'never', zh: '从未' },
   'misc.justNow': { en: 'just now', zh: '刚刚' },
