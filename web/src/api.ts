@@ -1,78 +1,160 @@
-import type { BrowseResult, ChangelogPage, HubState, Settings } from './types'
+// API client for the amended wire contract (docs/API_AMENDMENTS.md).
+// Every /api request carries the custom `X-PMH: 1` header (CSRF preflight forcer);
+// the only exceptions server-side are /api/img and the SSE stream.
+import type {
+  ActionAccepted,
+  ActionKind,
+  ActionProgress,
+  BrowsePage,
+  BrowseSort,
+  ChangelogPage,
+  FeedPage,
+  HubState,
+  ModDetail,
+  Settings,
+  SsePoke,
+} from './types'
 
-async function json<T>(res: Response): Promise<T> {
+export class ApiError extends Error {
+  status: number
+  code?: string
+
+  constructor(status: number, message: string, code?: string) {
+    super(message)
+    this.status = status
+    this.code = code
+  }
+}
+
+async function parse<T>(res: Response): Promise<T> {
   if (!res.ok) {
     let msg = `HTTP ${res.status}`
+    let code: string | undefined
     try {
-      const body = (await res.json()) as { error?: string }
-      if (body.error) msg = body.error
+      const body = (await res.json()) as { error?: string; message?: string }
+      if (body.error) {
+        code = body.error
+        msg = body.message ?? body.error
+      }
     } catch {
       // keep HTTP status message
     }
-    throw new Error(msg)
+    throw new ApiError(res.status, msg, code)
   }
   return res.json() as Promise<T>
 }
 
-export const api = {
-  state: (): Promise<HubState> => fetch('/api/state').then(r => json<HubState>(r)),
-
-  changelog: (modId: string, page = 1): Promise<ChangelogPage> =>
-    fetch(`/api/mods/${modId}/changelog?page=${page}`).then(r => json<ChangelogPage>(r)),
-
-  description: (modId: string): Promise<{ description: string }> =>
-    fetch(`/api/mods/${modId}/description`).then(r => json<{ description: string }>(r)),
-
-  poll: (): Promise<{ ok: boolean }> =>
-    fetch('/api/poll', { method: 'POST' }).then(r => json<{ ok: boolean }>(r)),
-
-  sync: (appId: number): Promise<{ ok: boolean; count: number }> =>
-    fetch(`/api/sync/${appId}`, { method: 'POST' }).then(r => json<{ ok: boolean; count: number }>(r)),
-
-  action: (
-    action: 'subscribe' | 'unsubscribe' | 'download' | 'force',
-    appId: number,
-    modId: string,
-  ): Promise<{ ok: boolean; error?: string }> =>
-    fetch(`/api/actions/${action}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ appId, modId }),
-    }).then(r => json<{ ok: boolean; error?: string }>(r)),
-
-  browse: (appId: number, page: number, sort: string, q: string): Promise<BrowseResult> =>
-    fetch(
-      `/api/browse/${appId}?page=${page}&sort=${encodeURIComponent(sort)}&q=${encodeURIComponent(q)}`,
-    ).then(r => json<BrowseResult>(r)),
-
-  saveSettings: (patch: Partial<Settings>): Promise<{ ok: boolean; settings: Settings }> =>
-    fetch('/api/settings', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(patch),
-    }).then(r => json<{ ok: boolean; settings: Settings }>(r)),
+function get<T>(path: string): Promise<T> {
+  return fetch(path, { headers: { 'X-PMH': '1' } }).then(r => parse<T>(r))
 }
 
+function send<T>(method: 'POST' | 'PATCH', path: string, body?: unknown): Promise<T> {
+  return fetch(path, {
+    method,
+    headers:
+      body === undefined
+        ? { 'X-PMH': '1' }
+        : { 'X-PMH': '1', 'Content-Type': 'application/json' },
+    body: body === undefined ? undefined : JSON.stringify(body),
+  }).then(r => parse<T>(r))
+}
+
+export interface FeedQuery {
+  beforeSeq?: number
+  afterSeq?: number
+  limit?: number
+}
+
+export const api = {
+  ping: (): Promise<{ app: string }> => get('/api/ping'),
+
+  /** Slim state: summaries + games + lastPoll + steamRunning + helperActive + seq. */
+  state: (): Promise<HubState> => get('/api/state'),
+
+  /** Full mod record — fetched on expand/detail only. */
+  mod: (modId: string): Promise<ModDetail> => get(`/api/mods/${encodeURIComponent(modId)}`),
+
+  /** Cursor-paginated changelog (before_ts, never ?page=). */
+  changelog: (modId: string, beforeTs?: number, limit = 20): Promise<ChangelogPage> => {
+    const q = new URLSearchParams()
+    if (beforeTs !== undefined) q.set('before_ts', String(beforeTs))
+    q.set('limit', String(limit))
+    return get(`/api/mods/${encodeURIComponent(modId)}/changelog?${q.toString()}`)
+  },
+
+  /** Feed cursors: before_seq scroll-back, after_seq catch-up (stable under head insertion). */
+  feed: (query: FeedQuery = {}): Promise<FeedPage> => {
+    const q = new URLSearchParams()
+    if (query.beforeSeq !== undefined) q.set('before_seq', String(query.beforeSeq))
+    if (query.afterSeq !== undefined) q.set('after_seq', String(query.afterSeq))
+    q.set('limit', String(query.limit ?? 50))
+    return get(`/api/feed?${q.toString()}`)
+  },
+
+  /** All actions are async jobs: 202 {actionId}; progress arrives over SSE. */
+  action: (
+    kind: Extract<ActionKind, 'subscribe' | 'unsubscribe' | 'download'>,
+    payload: { appId: number; modId?: string; modIds?: string[] },
+  ): Promise<ActionAccepted> => send('POST', `/api/actions/${kind}`, payload),
+
+  /** Reconnect catch-up for an in-flight action. */
+  actionStatus: (actionId: string): Promise<ActionProgress> =>
+    get(`/api/actions/${encodeURIComponent(actionId)}`),
+
+  /** Sync one game's subscriptions (helper launch) — 202 {actionId}. */
+  sync: (appId: number): Promise<ActionAccepted> => send('POST', `/api/sync/${appId}`),
+
+  /** Sync every game sequentially through the single helper queue. */
+  syncAll: (): Promise<ActionAccepted> => send('POST', '/api/sync'),
+
+  /** Manual poll trigger for the ops-bar refresh / "Check now". */
+  checkNow: (): Promise<{ ok: boolean }> => send('POST', '/api/poll'),
+
+  /** POST — a helper-spawning endpoint must never be a cacheable GET. */
+  browse: (
+    appId: number,
+    body: { q?: string; sort: BrowseSort; page: number },
+  ): Promise<BrowsePage> => send('POST', `/api/browse/${appId}`, body),
+
+  /** PATCH semantics; response echoes the applied settings. */
+  patchSettings: (patch: Partial<Settings>): Promise<Settings> =>
+    send('PATCH', '/api/settings', patch),
+
+  clearImageCache: (): Promise<{ ok: boolean }> => send('POST', '/api/img/clear'),
+}
+
+/** Route any Steam art through the local proxy (SSRF-hardened, cached). */
 export function img(url: string | undefined | null): string | undefined {
   if (!url) return undefined
   return `/api/img?u=${encodeURIComponent(url)}`
 }
 
-export type SseHandler = (event: string, data: Record<string, unknown>) => void
+/* ---------- SSE poke channel ---------- */
 
-export function connectEvents(handler: SseHandler): () => void {
+export interface SseHandlers {
+  /** Any poke ({type: state|feed|action, seq}). */
+  onPoke: (poke: SsePoke) => void
+  /** Fired on every open (incl. reconnects) — client must refetch state + feed?after_seq. */
+  onOpen?: () => void
+  onDown?: () => void
+}
+
+/**
+ * Connect the poke channel. The server sets `id:` to the monotonic seq, so the
+ * browser resends Last-Event-ID automatically on reconnect; regardless, the
+ * contract is refetch-on-open (state + feed catch-up), handled by the caller.
+ */
+export function connectEvents(handlers: SseHandlers): () => void {
   const es = new EventSource('/api/events')
-  const names = ['refresh', 'helper', 'action-done', 'changelog-ready']
-  for (const name of names) {
-    es.addEventListener(name, e => {
-      let data: Record<string, unknown> = {}
-      try {
-        data = JSON.parse((e as MessageEvent).data as string) as Record<string, unknown>
-      } catch {
-        // ignore malformed payloads
-      }
-      handler(name, data)
-    })
+  es.onmessage = e => {
+    try {
+      const poke = JSON.parse(e.data as string) as SsePoke
+      if (poke && typeof poke === 'object' && 'type' in poke) handlers.onPoke(poke)
+    } catch {
+      // ignore malformed payloads / heartbeat noise
+    }
   }
+  es.onopen = () => handlers.onOpen?.()
+  es.onerror = () => handlers.onDown?.()
   return () => es.close()
 }

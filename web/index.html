@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>PDX Mod Hub</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans+Condensed:wght@600&family=IBM+Plex+Sans:wght@400;500;600&family=Noto+Sans+SC:wght@400;500;600&display=swap"
+      rel="stylesheet"
+    />
+    <script>
+      // Pre-paint theme resolution: no flash, ever. Mirrors src/theme.ts.
+      ;(function () {
+        try {
+          var KEY = 'pmh.theme'
+          var mql = window.matchMedia('(prefers-color-scheme: dark)')
+          function mode() {
+            var saved = localStorage.getItem(KEY)
+            return saved === 'dark' || saved === 'light' ? saved : 'auto'
+          }
+          function apply() {
+            var m = mode()
+            var theme = m === 'auto' ? (mql.matches ? 'dark' : 'light') : m
+            var root = document.documentElement
+            root.setAttribute('data-theme', theme)
+            root.style.colorScheme = theme
+          }
+          apply()
+          // Live-follow the OS while preference is 'auto'.
+          var listen = mql.addEventListener
+            ? function (fn) { mql.addEventListener('change', fn) }
+            : function (fn) { mql.addListener(fn) }
+          listen(function () {
+            if (mode() === 'auto') apply()
+          })
+        } catch (e) {
+          document.documentElement.setAttribute('data-theme', 'dark')
+        }
+      })()
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

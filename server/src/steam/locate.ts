@@ -2,6 +2,7 @@ import { execFileSync } from 'node:child_process'
 import fs from 'node:fs'
 import path from 'node:path'
 import { parseVdf, vdfChild } from '../vdf.js'
+import type { LibraryInfo } from '../types.js'
 
 function regQuery(hive: string, key: string, value: string): string | null {
   try {
@@ -31,8 +32,11 @@ export function findSteamRoot(override?: string): string | null {
   return fs.existsSync(fallback) ? fallback : null
 }
 
-export function findLibraries(steamRoot: string): string[] {
-  const out = new Set<string>()
+// Every library listed in libraryfolders.vdf is returned, including currently
+// unreachable ones (sleeping/unplugged drives) — the hub uses the reachable flag
+// to mark games libraryOffline instead of producing false mass-removal diffs.
+export function findLibraries(steamRoot: string): LibraryInfo[] {
+  const out = new Map<string, boolean>()
   for (const rel of ['config/libraryfolders.vdf', 'steamapps/libraryfolders.vdf']) {
     const file = path.join(steamRoot, rel)
     if (!fs.existsSync(file)) continue
@@ -47,11 +51,13 @@ export function findLibraries(steamRoot: string): string[] {
     for (const [k, v] of Object.entries(lf)) {
       if (!/^\d+$/.test(k)) continue
       const p = typeof v === 'string' ? v : typeof v.path === 'string' ? v.path : undefined
-      if (p && fs.existsSync(p)) out.add(path.resolve(p))
+      if (!p) continue
+      const full = path.resolve(p)
+      out.set(full, out.get(full) || fs.existsSync(full))
     }
   }
-  if (out.size === 0) out.add(steamRoot)
-  return [...out]
+  if (out.size === 0) out.set(path.resolve(steamRoot), true)
+  return [...out].map(([p, reachable]) => ({ path: p, reachable }))
 }
 
 export function isSteamRunning(): boolean {

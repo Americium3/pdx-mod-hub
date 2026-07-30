@@ -1,83 +1,189 @@
-export interface GameInfo {
-  appId: number
-  name: string
-  short: string
-  workshop: boolean
-  installed: boolean
-  installDir?: string
-  libraryPath?: string
-  workshopAcf?: string
-  modCount: number
-  updatesPending: number
-  owned?: boolean
-  syncedAt?: number
-}
+// Core data model per docs/API_AMENDMENTS.md (stage A).
 
-export interface LocalMod {
-  id: string
-  appId: number
-  sizeBytes: number
-  timeUpdated: number
-  manifest?: string
-  latestTimeUpdated?: number
-}
+export type ModSource = 'workshop' | 'local'
 
-export interface RemoteMod {
-  id: string
-  result: number
-  appId?: number
+export type RemoteFetchStatus = 'ok' | 'removed' | 'banned' | 'private' | 'error'
+
+export type ModState =
+  | 'update-unseen' // hot: remoteTs > ACF latest_timeupdated (Steam has not noticed yet)
+  | 'update-pending-launch' // calm: Steam noticed (latest_* advanced) but waits for game launch
+  | 'up-to-date'
+  | 'not-installed'
+  | 'orphaned' // installed && fresh account data says not subscribed
+  | 'unverified' // installed && stale account data says not subscribed
+  | 'removed'
+  | 'banned'
+  | 'unknown'
+
+export interface RemoteMeta {
   title?: string
   description?: string
   previewUrl?: string
   fileSize?: number
   timeCreated?: number
-  timeUpdated?: number
   subscriptions?: number
   lifetimeSubscriptions?: number
   favorited?: number
   views?: number
   tags?: string[]
   creator?: string
-  banned?: boolean
 }
 
-export type ModStatus =
-  | 'update-available'
-  | 'up-to-date'
-  | 'not-installed'
-  | 'orphaned'
-  | 'removed'
-  | 'unknown'
+export interface RemoteInfo {
+  fetchStatus: RemoteFetchStatus
+  /** Last-known-good time_updated; survives removed/banned/private/error responses. */
+  remoteTs?: number
+  /** Epoch seconds of the last fetchStatus==='ok' response (0 = unknown/migrated). */
+  lastOkAt?: number
+  /** Last-known-good metadata; never overwritten by non-ok responses. */
+  meta?: RemoteMeta
+}
 
-export interface ModView {
+export interface AcfInfo {
+  present: true
+  /** Installed timeupdated from WorkshopItemsInstalled. */
+  acfTs: number
+  manifest?: string
+  sizeOnDisk: number
+}
+
+export interface LatestAcf {
+  latestTimeupdated?: number
+  latestManifest?: string
+}
+
+export interface AccountInfo {
+  subscribed: boolean
+  /** Epoch seconds when this fact was learned (sync time or optimistic action time). */
+  asOf: number
+}
+
+export interface BranchRange {
+  min: string
+  max: string
+}
+
+export interface ModRecord {
+  id: string
+  appId: number
+  source: ModSource
+  acf: AcfInfo | null
+  latestAcf: LatestAcf | null
+  remote: RemoteInfo | null
+  /** Last remote time_updated this server has observed; event diffs run against this, never ACF. */
+  lastSeenRemoteTs: number | null
+}
+
+/** Subset of ModRecord persisted to data/mods.json (ACF parts are re-derived on scan). */
+export interface PersistedModRecord {
+  appId: number
+  source: ModSource
+  remote: RemoteInfo | null
+  lastSeenRemoteTs: number | null
+}
+
+export type FeedEventType = 'updated' | 'downloaded' | 'removed' | 'banned'
+
+export interface FeedEvent {
+  /** Monotonic, persisted across restarts; SSE id and feed cursor. */
+  seq: number
+  modId: string
+  appId: number
+  type: FeedEventType
+  /** Sort key: remote/installed time_updated for updated/downloaded, detection time otherwise. */
+  ts: number
+  detectedAt: number
+  /** Snapshotted at creation so feed history survives removal. */
+  title?: string
+  previewUrl?: string
+}
+
+export interface LastPoll {
+  at: number
+  status: 'ok' | 'failed' | 'never'
+  error?: string
+}
+
+export interface LibraryInfo {
+  path: string
+  reachable: boolean
+}
+
+export interface GameInfo {
+  appId: number
+  name: string
+  short: string
+  workshop: boolean
+  browsable: boolean
+  installed: boolean
+  hasWorkshopAcf: boolean
+  installDir?: string
+  libraryPath?: string
+  workshopAcf?: string
+  libraryOffline: boolean
+  warnings: string[]
+  modCount: number
+  updatesPending: number
+  owned?: boolean
+  syncedAt?: number
+}
+
+/** Slim per-mod summary served by GET /api/state; full detail lives at GET /api/mods/:id. */
+export interface ModSummary {
   id: string
   appId: number
   title: string
+  state: ModState
+  remoteTs: number | null
+  acfTs: number | null
   previewUrl?: string
-  tags: string[]
-  fileSize?: number
   sizeOnDisk?: number
-  timeCreated?: number
-  timeUpdatedRemote?: number
-  timeUpdatedLocal?: number
-  subscriptions?: number
-  lifetimeSubscriptions?: number
-  favorited?: number
-  views?: number
-  creator?: string
-  banned?: boolean
-  subscribed?: boolean
-  status: ModStatus
+  fileSize?: number
+  subs?: number
+  branchRange: BranchRange | null
+  source: ModSource
 }
 
-export interface UpdateEvent {
-  key: string
-  modId: string
+export interface StatePayload {
+  seq: number
+  settings: Settings
+  steamRoot: string | null
+  libraries: LibraryInfo[]
+  steamRunning: boolean
+  helperActive: boolean
+  polling: boolean
+  lastPoll: LastPoll
+  games: GameInfo[]
+  mods: ModSummary[]
+}
+
+/** One item parsed out of an appworkshop_<appId>.acf. */
+export interface AcfModEntry {
+  id: string
   appId: number
-  ts: number
-  detectedAt: number
-  downloadedAt?: number
-  title?: string
+  sizeOnDisk: number
+  /** WorkshopItemsInstalled.timeupdated (0 = not yet downloaded). */
+  installedTs: number
+  manifest?: string
+  /** WorkshopItemDetails.timeupdated (what Steam last synced). */
+  detailTs: number
+  latestTimeupdated?: number
+  latestManifest?: string
+}
+
+export interface Settings {
+  port: number
+  pollIntervalSec: number
+  changelogPrefetch: boolean
+  language: 'en' | 'zh'
+  steamRootOverride?: string
+}
+
+export interface SubsCache {
+  appId: number
+  syncedAt: number
+  ids: string[]
+  states: Record<string, number>
 }
 
 export interface ChangelogEntry {
@@ -89,19 +195,4 @@ export interface ChangelogEntry {
 export interface ChangelogPage {
   entries: ChangelogEntry[]
   hasMore: boolean
-}
-
-export interface Settings {
-  port: number
-  pollIntervalMin: number
-  changelogPrefetch: boolean
-  language: 'en' | 'zh'
-  steamRootOverride?: string
-}
-
-export interface SubsCache {
-  appId: number
-  syncedAt: number
-  ids: string[]
-  states: Record<string, number>
 }

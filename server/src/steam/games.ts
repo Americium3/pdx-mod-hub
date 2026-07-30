@@ -1,7 +1,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { parseVdf, vdfChild } from '../vdf.js'
-import type { GameInfo } from '../types.js'
+import type { GameInfo, LibraryInfo } from '../types.js'
 
 export interface PdxGameDef {
   appId: number
@@ -39,7 +39,32 @@ export const PDX_GAMES: PdxGameDef[] = [
   { appId: 25890, name: 'Hearts of Iron III', short: 'HOI3', workshop: false },
 ]
 
-export function scanGames(libraries: string[]): GameInfo[] {
+interface Located {
+  lib: string
+  file: string
+  mtimeMs: number
+}
+
+function locate(libs: string[], rel: (lib: string) => string): Located[] {
+  const out: Located[] = []
+  for (const lib of libs) {
+    const file = rel(lib)
+    try {
+      out.push({ lib, file, mtimeMs: fs.statSync(file).mtimeMs })
+    } catch {
+      // absent
+    }
+  }
+  return out
+}
+
+// Multi-library rule (must-fix 15): the authoritative appworkshop ACF is the one
+// in the library whose steamapps/ contains appmanifest_<appId>.acf; stray ACFs in
+// other libraries are ignored (with a warning). Duplicate appmanifests pick the
+// newest mtime + warning. games[] always includes every Paradox title, including
+// installed games with zero workshop items.
+export function scanGames(libraries: LibraryInfo[]): GameInfo[] {
+  const reachable = libraries.filter(l => l.reachable).map(l => l.path)
   const games: GameInfo[] = []
   for (const def of PDX_GAMES) {
     const info: GameInfo = {
@@ -47,29 +72,59 @@ export function scanGames(libraries: string[]): GameInfo[] {
       name: def.name,
       short: def.short,
       workshop: def.workshop,
+      browsable: def.workshop, // static flag; stage B adds the cached capability probe
       installed: false,
+      hasWorkshopAcf: false,
+      libraryOffline: false,
+      warnings: [],
       modCount: 0,
       updatesPending: 0,
     }
-    for (const lib of libraries) {
-      const steamapps = path.join(lib, 'steamapps')
-      const manifest = path.join(steamapps, `appmanifest_${def.appId}.acf`)
-      if (fs.existsSync(manifest)) {
-        info.installed = true
-        info.libraryPath = lib
-        try {
-          const root = parseVdf(fs.readFileSync(manifest, 'utf8'))
-          const state = vdfChild(root, 'AppState')
-          const dir = state && typeof state.installdir === 'string' ? state.installdir : undefined
-          if (dir) info.installDir = path.join(steamapps, 'common', dir)
-        } catch {
-          // manifest unreadable: keep installed=true, skip installDir
-        }
+    const manifests = locate(reachable, lib =>
+      path.join(lib, 'steamapps', `appmanifest_${def.appId}.acf`),
+    )
+    let chosenLib: string | undefined
+    if (manifests.length > 0) {
+      manifests.sort((a, b) => b.mtimeMs - a.mtimeMs)
+      const chosen = manifests[0]
+      chosenLib = chosen.lib
+      info.installed = true
+      info.libraryPath = chosen.lib
+      if (manifests.length > 1) {
+        info.warnings.push(
+          `duplicate appmanifest in ${manifests.length} libraries; using newest: ${chosen.lib}`,
+        )
       }
-      const acf = path.join(steamapps, 'workshop', `appworkshop_${def.appId}.acf`)
-      if (fs.existsSync(acf)) {
-        info.workshopAcf = acf
-        if (!info.libraryPath) info.libraryPath = lib
+      try {
+        const root = parseVdf(fs.readFileSync(chosen.file, 'utf8'))
+        const state = vdfChild(root, 'AppState')
+        const dir = state && typeof state.installdir === 'string' ? state.installdir : undefined
+        if (dir) info.installDir = path.join(chosen.lib, 'steamapps', 'common', dir)
+      } catch {
+        // manifest unreadable: keep installed=true, skip installDir
+      }
+    }
+    const acfs = locate(reachable, lib =>
+      path.join(lib, 'steamapps', 'workshop', `appworkshop_${def.appId}.acf`),
+    )
+    if (chosenLib) {
+      const co = acfs.find(c => c.lib === chosenLib)
+      if (co) {
+        info.workshopAcf = co.file
+        info.hasWorkshopAcf = true
+      }
+      const strays = acfs.filter(c => c.lib !== chosenLib)
+      if (strays.length > 0) {
+        info.warnings.push(`ignoring stray workshop ACF in: ${strays.map(s => s.lib).join(', ')}`)
+      }
+    } else if (acfs.length > 0) {
+      // game not installed but workshop leftovers exist: use the newest one
+      acfs.sort((a, b) => b.mtimeMs - a.mtimeMs)
+      info.workshopAcf = acfs[0].file
+      info.hasWorkshopAcf = true
+      info.libraryPath = acfs[0].lib
+      if (acfs.length > 1) {
+        info.warnings.push('multiple workshop ACFs without an appmanifest; using newest')
       }
     }
     games.push(info)

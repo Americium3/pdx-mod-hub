@@ -1,109 +1,240 @@
-export interface GameInfo {
-  appId: number
-  name: string
-  short: string
-  workshop: boolean
-  installed: boolean
-  installDir?: string
-  libraryPath?: string
-  workshopAcf?: string
-  modCount: number
-  updatesPending: number
-  owned?: boolean
-  syncedAt?: number
+// Wire types for the amended API contract (docs/API_AMENDMENTS.md).
+// All timestamps on the wire are unix-epoch seconds (fields named *Ts / *At / syncedAt).
+
+/** Derived mod state (computed server-side, never stored as events). */
+export type ModState =
+  | 'awaiting-steam' // update-unseen-by-steam: remoteTs > latest ACF timeupdated (HOT)
+  | 'queued-for-launch' // Steam noticed the update but defers download to game launch (calm)
+  | 'downloading'
+  | 'up-to-date'
+  | 'not-installed' // account.subscribed && no ACF entry
+  | 'orphaned' // installed && account fresh && unsubscribed
+  | 'unverified' // account data stale — never a false orphaned claim
+  | 'removed'
+  | 'banned'
+  | 'error'
+
+export interface BranchRange {
+  min: string
+  max: string
 }
 
-export type ModStatus =
-  | 'update-available'
-  | 'up-to-date'
-  | 'not-installed'
-  | 'orphaned'
-  | 'removed'
-  | 'unknown'
+export type ModSource = 'workshop' | 'local'
 
-export interface ModView {
+/** Slim per-mod summary in /api/state. Full detail lives at /api/mods/:id. */
+export interface ModSummary {
   id: string
   appId: number
   title: string
+  author?: string
+  state: ModState
+  remoteTs?: number
+  acfTs?: number
   previewUrl?: string
-  tags: string[]
-  fileSize?: number
+  sizeWorkshop?: number
   sizeOnDisk?: number
+  subs?: number
+  source: ModSource
+  branchRange?: BranchRange | null
+  /** account.asOf — drives the "UNSUBSCRIBED · as of hh:mm" stamp */
+  accountAsOf?: number
+  dominantColor?: string
+}
+
+/** Full record from GET /api/mods/:id (fetched on expand/detail). */
+export interface ModDetail extends ModSummary {
+  descriptionHtml?: string
+  tags?: string[]
   timeCreated?: number
-  timeUpdatedRemote?: number
-  timeUpdatedLocal?: number
-  subscriptions?: number
-  lifetimeSubscriptions?: number
-  favorited?: number
+  favorites?: number
   views?: number
-  creator?: string
-  banned?: boolean
-  subscribed?: boolean
-  status: ModStatus
+  votesUp?: number
+  votesDown?: number
+  /** Steam star score 0..1 and vote count ("Not enough ratings" under ~10) */
+  score?: number
+  voteCount?: number
+  authorAvatarUrl?: string
+  authorUrl?: string
+  /** required items (children) ids */
+  children?: string[]
+  /** required-by, computed across the local cache */
+  requiredBy?: string[]
+  dlcRequired?: { appId: number; name?: string }[]
 }
 
-export interface UpdateEvent {
-  key: string
-  modId: string
+export interface GameInfo {
   appId: number
-  ts: number
-  detectedAt: number
-  downloadedAt?: number
-  title?: string
+  name: string
+  short?: string
+  installed: boolean
+  hasWorkshopAcf?: boolean
+  browsable?: boolean
+  libraryPath?: string
+  warnings?: string[]
+  syncedAt?: number
+  libraryOffline?: boolean
+  modCount?: number
 }
 
-export interface ChangelogEntry {
-  ts: number
-  date: string
-  html: string
-}
-
-export interface ChangelogPage {
-  entries: ChangelogEntry[]
-  hasMore: boolean
+export interface LastPoll {
+  at: number
+  status: 'ok' | 'failed' | 'never'
+  error?: string
 }
 
 export interface Settings {
-  port: number
-  pollIntervalMin: number
-  changelogPrefetch: boolean
+  pollIntervalSec: number
   language: 'en' | 'zh'
-  steamRootOverride?: string
+  changelogPrefetch: boolean
+  changelogPrefetchCap?: number
+  dataFolder?: string
+  imageCacheBytes?: number
+  port?: number
 }
 
+/** GET /api/state — slim summaries only. */
 export interface HubState {
-  settings: Settings
-  steamRoot: string | null
-  steamRunning: boolean
-  libraries: string[]
-  lastPoll: number
-  lastPollError?: string
-  polling: boolean
+  mods: ModSummary[]
   games: GameInfo[]
-  mods: ModView[]
-  feed: UpdateEvent[]
+  lastPoll: LastPoll
+  steamRunning: boolean
+  helperActive: boolean
+  seq: number
+  etag?: string
+  settings?: Settings
 }
+
+/* ---------- Feed ---------- */
+
+export type FeedEventType = 'update' | 'downloaded' | 'mod_removed' | 'mod_banned'
+
+export interface FeedEvent {
+  seq: number
+  modId: string
+  appId: number
+  type: FeedEventType
+  /** time_updated — the sort key */
+  ts: number
+  detectedAt: number
+  /** snapshotted at event creation so feed history survives removal */
+  title: string
+  previewUrl?: string
+  sizeDelta?: number
+}
+
+/** GET /api/feed?before_seq=&after_seq=&limit=50 */
+export interface FeedPage {
+  events: FeedEvent[]
+  hasMore: boolean
+}
+
+/* ---------- Changelog ---------- */
+
+export interface ChangelogEntry {
+  ts: number
+  ord: number
+  html: string
+  fetchedAt?: number
+}
+
+/** GET /api/mods/:id/changelog?before_ts=&limit=20 */
+export interface ChangelogPage {
+  entries: ChangelogEntry[]
+  hasMore: boolean
+  syncedThroughTs?: number
+  /** 'unavailable' when steamcommunity is blocked/slow — degrade, never stall */
+  status?: 'ok' | 'unavailable'
+}
+
+/* ---------- Actions (202 + actionId + SSE stages) ---------- */
+
+export type ActionKind = 'subscribe' | 'unsubscribe' | 'download' | 'sync' | 'syncAll'
+
+export type ActionStage =
+  | 'queued'
+  | 'helper_starting'
+  | 'subscribed'
+  | 'downloading'
+  | 'result'
+  | 'acf_confirmed'
+  | 'result_ok_unconfirmed'
+  | 'failed'
+
+export const TERMINAL_STAGES: readonly ActionStage[] = [
+  'acf_confirmed',
+  'result_ok_unconfirmed',
+  'failed',
+]
+
+export interface ActionProgress {
+  actionId: string
+  kind: ActionKind
+  stage: ActionStage
+  appId?: number
+  modId?: string
+  modIds?: string[]
+  detail?: string
+  queuePosition?: number
+  startedAt: number
+  endedAt?: number
+}
+
+export interface ActionAccepted {
+  actionId: string
+}
+
+/* ---------- Browse ---------- */
+
+export type BrowseSort =
+  | 'relevance' // requires q (RankedByTextSearch)
+  | 'updated'
+  | 'published'
+  | 'trend7d'
+  | 'trend30d'
+  | 'popular'
 
 export interface BrowseItem {
   id: string
   title: string
-  description: string
-  previewUrl: string | null
-  timeCreated: number
-  timeUpdated: number
-  tags: string[]
-  numUpvotes: number
-  numDownvotes: number
-  subscriptions: string | null
-  banned: boolean
-  url: string
+  author?: string
+  authorAvatarUrl?: string
+  previewUrl?: string
+  timeCreated?: number
+  timeUpdated?: number
+  subs?: number
+  sizeWorkshop?: number
+  score?: number
+  voteCount?: number
+  tags?: string[]
+  banned?: boolean
+  /** cross-referenced server-side against account set + ACF */
+  subscribed?: boolean
+  installed?: boolean
+  children?: string[]
 }
 
-export interface BrowseResult {
-  ok: boolean
-  error?: string
-  appId: number
-  page: number
-  total: number
+/** POST /api/browse/:appId {q, sort, page} */
+export interface BrowsePage {
   items: BrowseItem[]
+  page: number
+  perPage: number
+  total?: number
+  capped: boolean
 }
+
+/* ---------- SSE poke channel ---------- */
+
+export type SsePoke =
+  | { type: 'state'; seq: number }
+  | { type: 'feed'; seq: number }
+  | {
+      type: 'action'
+      seq: number
+      actionId: string
+      stage: ActionStage
+      kind?: ActionKind
+      appId?: number
+      modId?: string
+      detail?: string
+      queuePosition?: number
+    }
