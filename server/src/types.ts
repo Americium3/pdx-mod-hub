@@ -72,6 +72,18 @@ export interface ModRecord {
   remote: RemoteInfo | null
   /** Last remote time_updated this server has observed; event diffs run against this, never ACF. */
   lastSeenRemoteTs: number | null
+  /**
+   * Opt-in notification flag. Only cared mods emit 'updated' events, so an
+   * uncared mod's update reaches no feed at all.
+   *
+   * It gates ANNOUNCEMENTS only, never tracking: lastSeenRemoteTs still
+   * advances and `state` is still computed for every mod. Uncared mods
+   * therefore still show up in the library, the Launch Queue and the pending
+   * badge — those answer "what is out of date?" on demand, which is the
+   * opposite of an interruption. Deliberate; do not "fix" it by filtering
+   * stateOf().
+   */
+  cared: boolean
   /** Runtime-only memo of the sanitized description HTML (keyed by raw source). */
   descCache?: { src: string; html: string }
 }
@@ -82,6 +94,8 @@ export interface PersistedModRecord {
   source: ModSource
   remote: RemoteInfo | null
   lastSeenRemoteTs: number | null
+  /** Omitted when false — absent reads as "not cared", which is the default. */
+  cared?: boolean
 }
 
 export type FeedEventType = 'updated' | 'downloaded' | 'removed' | 'banned'
@@ -151,6 +165,8 @@ export interface ModSummary {
   timeCreatedTs?: number | null
   /** account.asOf — drives the "UNSUBSCRIBED · as of hh:mm" stamp client-side */
   accountAsOf?: number | null
+  /** Opt-in to update notifications; see ModRecord.cared. */
+  cared: boolean
 }
 
 export interface StatePayload {

@@ -40,6 +40,12 @@ export interface ModSummary {
   accountAsOf?: number
   dominantColor?: string
   timeCreated?: number
+  /**
+   * Opt-in to update notifications. An uncared mod emits no update event
+   * anywhere — not in the Updates feed, not in Atrium. Tracking is unaffected:
+   * `state` still reports what has an update waiting.
+   */
+  cared: boolean
 }
 
 /** Full record from GET /api/mods/:id (fetched on expand/detail). */

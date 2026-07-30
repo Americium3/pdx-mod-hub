@@ -27,6 +27,7 @@ import { Stamp } from '../components/Stamp'
 import { StateDot } from '../components/StateDot'
 import type { MsgKey } from '../i18n'
 import { DUR, SNAP, useReducedMotionSafe } from '../motion'
+import { Toggle } from '../pages/settings/Toggle'
 import { watchPersonas } from '../personas'
 import { useHub } from '../store'
 import type { ActionProgress, ActionStage, ModDetail, ModState } from '../types'
@@ -72,7 +73,7 @@ export default function DetailSheet({
 /* ================= Content (remounts per mod via key) ================= */
 
 function DetailContent({ modId }: { modId: string }): ReactNode {
-  const { state, t, lang, actions, runAction, toast } = useHub()
+  const { state, t, lang, actions, runAction, toast, setCared } = useHub()
   const snap = useReducedMotionSafe(SNAP)
 
   const summary = state?.mods.find(m => m.id === modId)
@@ -244,6 +245,23 @@ function DetailContent({ modId }: { modId: string }): ReactNode {
 
         {/* States with no hero stamp still get the plain dot + label. */}
         {stamp === null && stateVal !== undefined ? <StateDot state={stateVal} /> : null}
+
+        {/* ----- update notifications opt-in ----- */}
+        <section className="flex items-start justify-between gap-[12px] rounded-std border border-[var(--line-2)] px-[12px] py-[10px]">
+          <span className="flex min-w-0 flex-col gap-[3px]">
+            <span className="text-[13px] leading-[17px] font-medium text-[var(--text-1)]">
+              {t('care.label')}
+            </span>
+            <span className="text-[12px] leading-[16px] text-[var(--text-3)]">
+              {t('care.explain')}
+            </span>
+          </span>
+          <Toggle
+            checked={summary?.cared ?? false}
+            onChange={next => void setCared(modId, next)}
+            aria-label={t(summary?.cared ? 'care.off' : 'care.on', { title })}
+          />
+        </section>
 
         {/* ----- stats block mirroring Steam (mono, right-aligned) ----- */}
         <section className="flex flex-col">
