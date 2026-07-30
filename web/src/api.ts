@@ -130,6 +130,7 @@ function mapSummary(raw: Raw): HubState['mods'][number] {
     branchRange: mapBranchRange(raw.branchRange),
     accountAsOf: num(raw.accountAsOf),
     dominantColor: str(raw.dominantColor),
+    timeCreated: num(raw.timeCreated) ?? num(raw.timeCreatedTs),
   }
 }
 

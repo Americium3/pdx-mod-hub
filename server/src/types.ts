@@ -144,6 +144,9 @@ export interface ModSummary {
   subs?: number
   branchRange: BranchRange | null
   source: ModSource
+  timeCreatedTs?: number | null
+  /** account.asOf — drives the "UNSUBSCRIBED · as of hh:mm" stamp client-side */
+  accountAsOf?: number | null
 }
 
 export interface StatePayload {

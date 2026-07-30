@@ -769,6 +769,8 @@ export function buildState(): StatePayload {
       subs: meta?.subscriptions,
       branchRange: branchRangeOf(meta?.tags),
       source: rec.source,
+      timeCreatedTs: meta?.timeCreated ?? null,
+      accountAsOf: account?.asOf ?? null,
     })
   }
   const games = hub.games.map(g => ({ ...g, updatesPending: pendingByApp.get(g.appId) ?? 0 }))

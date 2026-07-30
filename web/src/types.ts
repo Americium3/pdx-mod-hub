@@ -39,6 +39,7 @@ export interface ModSummary {
   /** account.asOf — drives the "UNSUBSCRIBED · as of hh:mm" stamp */
   accountAsOf?: number
   dominantColor?: string
+  timeCreated?: number
 }
 
 /** Full record from GET /api/mods/:id (fetched on expand/detail). */

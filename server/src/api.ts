@@ -1,3 +1,4 @@
+import { spawn } from 'node:child_process'
 import fs from 'node:fs'
 import path from 'node:path'
 import express from 'express'
@@ -5,6 +6,7 @@ import type { Request, Response } from 'express'
 import {
   APP_NAME,
   APP_VERSION,
+  DATA_DIR,
   WEB_DIST,
   clampPollInterval,
   saveSettings,
@@ -175,6 +177,44 @@ export function createApp(port: number): express.Express {
   app.post('/api/imgcache', (_req, res) => {
     const removed = clearImageCache()
     res.json({ ok: true, removed, ...imageCacheStats() })
+  })
+
+  // Reveal a folder in Explorer. Only two shapes are allowed and both resolve
+  // to server-derived paths — the client can never open an arbitrary path:
+  //   {appId, modId} -> <library>\steamapps\workshop\content\<appId>\<modId>
+  //   {} or {path}   -> the data folder (path, if sent, must equal it)
+  app.post('/api/open-folder', (req, res) => {
+    const body = (req.body ?? {}) as { appId?: unknown; modId?: unknown; path?: unknown }
+    let target: string | null = null
+    if (body.appId !== undefined || body.modId !== undefined) {
+      const appId = Number(body.appId)
+      const modId = String(body.modId ?? '')
+      if (!Number.isInteger(appId) || appId <= 0 || !/^\d+$/.test(modId)) {
+        res.status(400).json({ error: 'bad appId/modId' })
+        return
+      }
+      const game = hub.games.find(g => g.appId === appId)
+      if (!game?.libraryPath) {
+        res.status(404).json({ error: 'game not found' })
+        return
+      }
+      target = path.join(game.libraryPath, 'steamapps', 'workshop', 'content', String(appId), modId)
+    } else {
+      const dataDir = path.resolve(DATA_DIR)
+      if (typeof body.path === 'string' && body.path.trim() !== '') {
+        if (path.resolve(body.path) !== dataDir) {
+          res.status(403).json({ error: 'path not allowed' })
+          return
+        }
+      }
+      target = dataDir
+    }
+    if (!fs.existsSync(target) || !fs.statSync(target).isDirectory()) {
+      res.status(404).json({ error: 'folder not found' })
+      return
+    }
+    spawn('explorer.exe', [target], { windowsHide: false, detached: true, stdio: 'ignore' }).unref()
+    res.json({ ok: true })
   })
 
   // ------------------------------------------------------------ mod content
