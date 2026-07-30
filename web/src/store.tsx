@@ -106,6 +106,8 @@ interface HubContextValue {
     payload: { appId: number; modId?: string; modIds?: string[] },
   ) => Promise<string | null>
   runSync: (appId?: number) => Promise<string | null>
+  /** Opt a mod in/out of update notifications (optimistic; rolls back on failure). */
+  setCared: (modId: string, cared: boolean) => Promise<void>
 
   // toasts
   toasts: ToastItem[]
@@ -447,6 +449,46 @@ export function HubProvider({ children }: { children: ReactNode }): ReactNode {
     [toast],
   )
 
+  const setCared = useCallback(
+    async (modId: string, cared: boolean): Promise<void> => {
+      // Optimistic: the toggle is a pure preference, so it must feel instant.
+      // The server's state poke re-broadcasts the truth either way.
+      let previous = cared
+      setState(prev => {
+        if (!prev) return prev
+        return {
+          ...prev,
+          mods: prev.mods.map(m => {
+            if (m.id !== modId) return m
+            previous = m.cared // captured from live state, not the caller's closure
+            return { ...m, cared }
+          }),
+        }
+      })
+      try {
+        await api.setCared(modId, cared)
+      } catch (e) {
+        // Roll back to what it actually was: two fast toggles would otherwise
+        // let the loser's rollback re-apply the winner's discarded value.
+        setState(prev =>
+          prev
+            ? {
+                ...prev,
+                mods: prev.mods.map(m => (m.id === modId ? { ...m, cared: previous } : m)),
+              }
+            : prev,
+        )
+        toast(
+          'error',
+          translate(langRef.current, 'toast.actionFailed', {
+            e: e instanceof Error ? e.message : String(e),
+          }),
+        )
+      }
+    },
+    [toast],
+  )
+
   /* ----- selectors ----- */
   const pendingCount = useMemo(
     () => state?.mods.filter(m => m.state === 'awaiting-steam').length ?? 0,
@@ -478,6 +520,7 @@ export function HubProvider({ children }: { children: ReactNode }): ReactNode {
       actions,
       runAction,
       runSync,
+      setCared,
       toasts,
       toast,
       dismissToast,
@@ -504,6 +547,7 @@ export function HubProvider({ children }: { children: ReactNode }): ReactNode {
       actions,
       runAction,
       runSync,
+      setCared,
       toasts,
       toast,
       dismissToast,

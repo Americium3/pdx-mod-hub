@@ -176,6 +176,18 @@ const dict = {
   'library.openFolders': { en: 'Open folders', zh: '打开文件夹' },
   'library.sort.label': { en: 'Sort', zh: '排序' },
   'library.clearSelection': { en: 'Clear selection', zh: '清除所选' },
+  'library.chip.cared': { en: 'Watched', zh: '已关心' },
+
+  // care flag — per-mod opt-in to update notifications
+  'care.on': { en: 'Watch {title} for updates', zh: '关心《{title}》的更新' },
+  'care.off': { en: 'Stop watching {title} for updates', zh: '不再关心《{title}》的更新' },
+  'care.tipOn': { en: 'Watched — updates are announced', zh: '已关心——更新会通知你' },
+  'care.tipOff': { en: 'Not watched — updates stay silent', zh: '未关心——更新不通知' },
+  'care.label': { en: 'Watch for updates', zh: '关心更新' },
+  'care.explain': {
+    en: 'Only watched mods announce updates. The rest are still tracked — the library keeps showing what has an update waiting, it just does not interrupt you.',
+    zh: '只有「关心」的模组在更新时通知你。其余照常追踪——模组库仍会显示谁有更新待装，只是不再打扰你。',
+  },
 
   // browse
   'browse.title': { en: 'Browse', zh: '浏览工坊' },

@@ -31,6 +31,7 @@ import {
   reschedulePoll,
   resolveLibraries,
   scanAcfs,
+  setCared,
   trackHelper,
 } from './hub.js'
 import { clearImageCache, imageCacheStats, serveImage } from './images.js'
@@ -150,6 +151,46 @@ export function createApp(port: number): express.Express {
       requestPersonas([creator])
     }
     res.json(detail)
+  })
+
+  // Opt a mod in/out of update notifications. An uncared mod emits no 'updated'
+  // event, so it surfaces in no feed at all — but it keeps being tracked, so the
+  // library still shows what has an update waiting.
+  app.patch('/api/mods/:id', async (req, res) => {
+    const id = String(req.params.id)
+    if (!/^\d+$/.test(id)) {
+      res.status(400).json({ error: 'bad id' })
+      return
+    }
+    const body = req.body as Record<string, unknown> | undefined
+    if (!body || typeof body !== 'object' || Array.isArray(body)) {
+      res.status(422).json({ error: 'invalid patch', errors: { body: 'expected a JSON object' } })
+      return
+    }
+    const unknown = Object.keys(body).filter(k => k !== 'cared')
+    if (unknown.length > 0) {
+      res.status(422).json({
+        error: 'invalid patch',
+        errors: Object.fromEntries(unknown.map(k => [k, 'unknown field'])),
+      })
+      return
+    }
+    if (typeof body.cared !== 'boolean') {
+      res.status(422).json({ error: 'invalid patch', errors: { cared: 'expected a boolean' } })
+      return
+    }
+    try {
+      if (!(await setCared(id, body.cared))) {
+        res.status(404).json({ error: 'unknown mod' })
+        return
+      }
+    } catch (e) {
+      // Express 4 does not forward a rejected async handler, so an unhandled
+      // throw here would hang the request until the client gives up.
+      res.status(500).json({ error: 'persist failed', message: String(e) })
+      return
+    }
+    res.json({ ok: true, id, cared: body.cared })
   })
 
   // Cached persona lookups; misses are enqueued for the background resolver,

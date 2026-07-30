@@ -132,6 +132,7 @@ function mapSummary(raw: Raw): HubState['mods'][number] {
     accountAsOf: num(raw.accountAsOf),
     dominantColor: str(raw.dominantColor),
     timeCreated: num(raw.timeCreated) ?? num(raw.timeCreatedTs),
+    cared: raw.cared === true,
   }
 }
 
@@ -335,6 +336,10 @@ export const api = {
   /** PATCH semantics; response echoes the applied settings. */
   patchSettings: (patch: Partial<Settings>): Promise<Settings> =>
     send('PATCH', '/api/settings', patch),
+
+  /** Opt a mod in/out of update notifications; response echoes the applied flag. */
+  setCared: (modId: string, cared: boolean): Promise<{ ok: boolean; cared: boolean }> =>
+    send('PATCH', `/api/mods/${encodeURIComponent(modId)}`, { cared }),
 
   /** GET /api/imgcache — proxy cache stats for the Settings readout. */
   imageCacheStats: (): Promise<{ files: number; bytes: number; maxBytes: number }> =>

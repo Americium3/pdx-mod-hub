@@ -194,6 +194,7 @@ export async function initHub(): Promise<void> {
       latestAcf: null,
       remote: p.remote ?? null,
       lastSeenRemoteTs: p.lastSeenRemoteTs ?? null,
+      cared: p.cared === true, // absent (every pre-existing record) => not cared
     })
   }
   hub.subs = new Map()
@@ -229,12 +230,31 @@ export function ensureRecord(id: string, appId = 0): ModRecord {
       latestAcf: null,
       remote: null,
       lastSeenRemoteTs: null,
+      cared: false,
     }
     hub.mods.set(id, rec)
   } else if (rec.appId === 0 && appId > 0) {
     rec.appId = appId
   }
   return rec
+}
+
+/**
+ * Opt a mod in or out of update notifications. Returns false for an unknown id.
+ *
+ * No event is emitted for the toggle itself, and no backlog is replayed when a
+ * mod becomes cared: lastSeenRemoteTs has been tracked all along, so the next
+ * genuine update is the first one announced.
+ */
+export async function setCared(id: string, cared: boolean): Promise<boolean> {
+  const rec = hub.mods.get(id)
+  if (!rec) return false
+  if (rec.cared !== cared) {
+    rec.cared = cared
+    await persistMods()
+    broadcastPoke('state')
+  }
+  return true
 }
 
 export function persistMods(): Promise<void> {
@@ -245,6 +265,9 @@ export function persistMods(): Promise<void> {
       source: r.source,
       remote: r.remote,
       lastSeenRemoteTs: r.lastSeenRemoteTs,
+      // Written only when true: the default is the common case, and mods.json
+      // should not grow a false flag on every one of the tracked records.
+      ...(r.cared ? { cared: true } : {}),
     }
   }
   return writeJson(MODS_FILE, out)
@@ -551,8 +574,9 @@ export function metaFrom(r: RemoteFetchResult): RemoteMeta {
 /**
  * Poll the keyless Web API and diff against lastSeenRemoteTs (must-fix 1, 11, 21).
  * - 'updated' iff newTs > lastSeenRemoteTs AND lastSeenRemoteTs != null AND the
- *   previous fetch was ok (suppresses private->public flips); first observation
- *   seeds silently.
+ *   previous fetch was ok (suppresses private->public flips) AND the mod is
+ *   cared for; first observation seeds silently. Tracking is unconditional —
+ *   only the event is opt-in, so `state` stays accurate for every mod.
  * - result=9 => removed, banned flag => banned; last-known-good meta is never
  *   overwritten by non-ok responses; transport failure touches nothing.
  */
@@ -595,6 +619,7 @@ export async function pollRemote(reason: string): Promise<void> {
         const newTs = r.timeUpdated ?? 0
         if (
           newTs > 0 &&
+          rec.cared && // opt-in: an uncared update is tracked below, never announced
           rec.lastSeenRemoteTs !== null &&
           prevStatus === 'ok' &&
           newTs > rec.lastSeenRemoteTs
@@ -784,6 +809,7 @@ export function buildState(): StatePayload {
       source: rec.source,
       timeCreatedTs: meta?.timeCreated ?? null,
       accountAsOf: account?.asOf ?? null,
+      cared: rec.cared,
     })
   }
   const games = hub.games.map(g => ({ ...g, updatesPending: pendingByApp.get(g.appId) ?? 0 }))
@@ -835,6 +861,7 @@ export function buildModDetail(id: string): Record<string, unknown> | null {
     remoteTs: rec.remote?.remoteTs ?? null,
     acfTs: rec.acf?.acfTs ?? null,
     lastSeenRemoteTs: rec.lastSeenRemoteTs,
+    cared: rec.cared,
     lastOkAtTs: rec.remote?.lastOkAt ?? null,
     fetchStatus: rec.remote?.fetchStatus ?? null,
     fileSize: meta?.fileSize ?? null,

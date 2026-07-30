@@ -6,6 +6,7 @@
 import { AnimatePresence, motion } from 'framer-motion'
 import {
   ArrowUpRight,
+  Bell,
   ChevronDown,
   ChevronRight,
   Copy,
@@ -85,16 +86,26 @@ const STATE_RANK: Record<ModState, number> = {
   'up-to-date': 9,
 }
 
-type ChipKey = 'awaiting' | 'queued' | 'downloading' | 'orphaned' | 'notInstalled' | 'removed'
+type ChipKey =
+  | 'cared'
+  | 'awaiting'
+  | 'queued'
+  | 'downloading'
+  | 'orphaned'
+  | 'notInstalled'
+  | 'removed'
 
 interface ChipDef {
   key: ChipKey
   label: MsgKey
   /** the states this chip filters to; first entry drives the dot color */
   states: readonly ModState[]
+  /** replaces `states` when the chip filters on something that is not a state */
+  match?: (m: LibraryMod) => boolean
 }
 
 const CHIP_DEFS: readonly ChipDef[] = [
+  { key: 'cared', label: 'library.chip.cared', states: [], match: m => m.cared },
   { key: 'awaiting', label: 'library.chip.awaiting', states: ['awaiting-steam'] },
   { key: 'queued', label: 'library.chip.queued', states: ['queued-for-launch'] },
   { key: 'downloading', label: 'library.chip.downloading', states: ['downloading'] },
@@ -102,6 +113,10 @@ const CHIP_DEFS: readonly ChipDef[] = [
   { key: 'notInstalled', label: 'library.chip.notInstalled', states: ['not-installed'] },
   { key: 'removed', label: 'library.chip.removed', states: ['removed', 'banned', 'error'] },
 ]
+
+function chipMatches(def: ChipDef, m: LibraryMod): boolean {
+  return def.match ? def.match(m) : def.states.includes(m.state)
+}
 
 /* ------------------------------------------------------------------ layout */
 
@@ -205,7 +220,11 @@ function FilterChip({
           : `border-[var(--line-2)] text-[var(--text-2)] hover:bg-[var(--bg-2)] ${count === 0 ? 'opacity-50' : ''}`
       }`}
     >
-      <StateDot state={def.states[0]} label={false} />
+      {def.states.length > 0 ? (
+        <StateDot state={def.states[0]} label={false} />
+      ) : (
+        <Bell size={12} strokeWidth={2} fill="currentColor" />
+      )}
       <ReservedText k={def.label} />
       <span className="voice-mono-sm text-[var(--text-3)]">{count}</span>
     </button>
@@ -216,6 +235,38 @@ const SELECT_CLASS =
   'h-[28px] cursor-pointer rounded-std border border-[var(--line-2)] bg-[var(--inset)] px-[8px] font-ui text-[12px] text-[var(--text-1)] outline-none'
 
 /* ------------------------------------------------------------------ row */
+
+/**
+ * Per-mod opt-in to update notifications. Lives in the identity cell rather
+ * than RowActions because it shows STATE, and RowActions is hover-only — the
+ * watched set has to be readable at a glance down the whole list.
+ */
+function CareBell({ mod }: { mod: LibraryMod }): ReactNode {
+  const { t, setCared } = useHub()
+  const on = mod.cared
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={on}
+      aria-label={t(on ? 'care.off' : 'care.on', { title: mod.title })}
+      title={t(on ? 'care.tipOn' : 'care.tipOff')}
+      onClick={e => {
+        e.stopPropagation()
+        void setCared(mod.id, !on)
+      }}
+      className={
+        'grid h-[22px] w-[22px] shrink-0 cursor-pointer place-items-center rounded-std ' +
+        'transition-opacity hover:bg-[var(--bg-2)] ' +
+        (on
+          ? 'text-[var(--accent-text)]'
+          : 'text-[var(--text-3)] opacity-35 hover:opacity-100')
+      }
+    >
+      <Bell size={14} strokeWidth={on ? 2 : 1.75} fill={on ? 'currentColor' : 'none'} />
+    </button>
+  )
+}
 
 function ModRow({
   mod,
@@ -256,8 +307,9 @@ function ModRow({
         }
       }}
     >
-      {/* identity: 64x30 thumb + title + id (mono muted) */}
+      {/* identity: care bell + 64x30 thumb + title + id (mono muted) */}
       <GridCell className="py-[4px]">
+        <CareBell mod={mod} />
         <span className="w-[64px] shrink-0">
           <ImageFrame
             src={mod.previewUrl}
@@ -441,6 +493,7 @@ export default function LibraryPage(): ReactNode {
   /** Live counts, computed before the chip filter itself applies. */
   const chipCounts = useMemo(() => {
     const counts: Record<ChipKey, number> = {
+      cared: 0,
       awaiting: 0,
       queued: 0,
       downloading: 0,
@@ -450,7 +503,7 @@ export default function LibraryPage(): ReactNode {
     }
     for (const m of searched) {
       for (const def of CHIP_DEFS) {
-        if (def.states.includes(m.state)) counts[def.key] += 1
+        if (chipMatches(def, m)) counts[def.key] += 1
       }
     }
     return counts
@@ -458,11 +511,8 @@ export default function LibraryPage(): ReactNode {
 
   const visible = useMemo(() => {
     if (activeChips.size === 0) return searched
-    const states = new Set<ModState>()
-    for (const def of CHIP_DEFS) {
-      if (activeChips.has(def.key)) for (const s of def.states) states.add(s)
-    }
-    return searched.filter(m => states.has(m.state))
+    const active = CHIP_DEFS.filter(d => activeChips.has(d.key))
+    return searched.filter(m => active.some(d => chipMatches(d, m)))
   }, [searched, activeChips])
 
   /* ----- grouping ----- */
