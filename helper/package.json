@@ -1,0 +1,9 @@
+{
+  "name": "@pdx-mod-hub/helper",
+  "private": true,
+  "version": "0.1.0",
+  "type": "commonjs",
+  "dependencies": {
+    "steamworks.js": "0.4.0"
+  }
+}
