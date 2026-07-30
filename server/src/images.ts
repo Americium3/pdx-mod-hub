@@ -94,6 +94,25 @@ async function validateUrl(u: URL): Promise<boolean> {
   return dnsSafe(u.hostname)
 }
 
+/** Magic-byte image sniff; returns the MIME type or null if not a known raster image. */
+function sniffImageType(buf: Buffer): string | null {
+  if (buf.length < 12) return null
+  if (buf[0] === 0xff && buf[1] === 0xd8 && buf[2] === 0xff) return 'image/jpeg'
+  if (buf[0] === 0x89 && buf[1] === 0x50 && buf[2] === 0x4e && buf[3] === 0x47) return 'image/png'
+  if (buf[0] === 0x47 && buf[1] === 0x49 && buf[2] === 0x46) return 'image/gif'
+  if (
+    buf[0] === 0x52 &&
+    buf[1] === 0x49 &&
+    buf[2] === 0x46 &&
+    buf[3] === 0x46 &&
+    buf.toString('ascii', 8, 12) === 'WEBP'
+  ) {
+    return 'image/webp'
+  }
+  if (buf[0] === 0x42 && buf[1] === 0x4d) return 'image/bmp'
+  return null
+}
+
 // ---------------------------------------------------------------- cache
 
 interface CachedMeta {
@@ -276,15 +295,18 @@ export async function serveImage(req: Request, res: Response): Promise<void> {
       res.status(502).end()
       return
     }
-    const contentType = upstream.headers.get('content-type') ?? ''
-    if (!contentType.toLowerCase().startsWith('image/')) {
-      upstream.body?.cancel().catch(() => undefined)
-      res.status(415).end()
-      return
-    }
     const buf = await readCapped(upstream)
     if (!buf) {
       res.status(413).end()
+      return
+    }
+    // Steam's UGC CDN serves images as application/octet-stream, so the upstream
+    // header is unreliable. Sniff the magic bytes instead and only serve the
+    // response when the bytes really are a known raster image — safer than
+    // trusting either the header or the URL.
+    const contentType = sniffImageType(buf)
+    if (!contentType) {
+      res.status(415).end()
       return
     }
     try {
