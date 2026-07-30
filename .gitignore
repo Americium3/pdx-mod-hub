@@ -2,6 +2,7 @@ node_modules/
 dist/
 data/
 .codegraph/
+.claude/
 *.log
 .env
 *.tsbuildinfo
