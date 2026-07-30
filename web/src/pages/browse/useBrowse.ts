@@ -101,19 +101,33 @@ export function useBrowse(
     fetchPage(1, false)
   }, [fetchPage])
 
-  // Persona names resolve asynchronously server-side; re-ask a couple of times
-  // and merge whatever lands. Re-runs only when items actually change (a merge
-  // with zero resolutions never calls apply, so this cannot loop).
+  // Persona names resolve asynchronously server-side; re-ask a few times and
+  // merge whatever lands. apply is skipped when the response is empty, and the
+  // setter returns prev unchanged when nothing merges, so this cannot loop.
+  // Known-missing profiles settle to an empty-string sentinel ('' renders as
+  // absent) so they leave the re-ask set and free slots in the 100-id cap.
   useEffect(() => {
-    const missing = items.filter(i => i.ownerId && !i.author).map(i => i.ownerId)
+    const missing = items.filter(i => i.ownerId && i.author == null).map(i => i.ownerId)
     if (missing.length === 0) return
-    return watchPersonas(missing, personas => {
-      setItems(prev =>
-        prev.map(it => {
-          const p = it.ownerId && !it.author ? personas[it.ownerId] : undefined
-          return p ? { ...it, author: p.name, authorAvatarUrl: p.avatarUrl } : it
-        }),
-      )
+    return watchPersonas(missing, (personas, knownMissing) => {
+      const settled = new Set(knownMissing ?? [])
+      setItems(prev => {
+        let changed = false
+        const next = prev.map(it => {
+          if (!it.ownerId || it.author != null) return it
+          const p = personas[it.ownerId]
+          if (p) {
+            changed = true
+            return { ...it, author: p.name, authorAvatarUrl: p.avatarUrl }
+          }
+          if (settled.has(it.ownerId)) {
+            changed = true
+            return { ...it, author: '' }
+          }
+          return it
+        })
+        return changed ? next : prev
+      })
     })
   }, [items])
 

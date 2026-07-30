@@ -349,8 +349,11 @@ function BrowseRow({
             {item.banned ? <BannedTag /> : null}
           </span>
           <span className="flex min-w-0 items-center gap-[6px]">
+            {/* Tags render first so an async persona resolution never shifts
+                them — the author name fades into the trailing space. */}
+            <TagChips tags={item.tags} />
             {item.author ? (
-              <span className="flex min-w-0 shrink-0 items-center gap-[4px] text-[11px] leading-[14px] text-[var(--text-3)]">
+              <span className="flex min-w-0 shrink-0 items-center gap-[4px] text-[11px] leading-[14px] text-[var(--text-3)] transition-opacity duration-150">
                 {item.authorAvatarUrl ? (
                   <img
                     src={img(item.authorAvatarUrl)}
@@ -362,7 +365,6 @@ function BrowseRow({
                 <span className="max-w-[140px] truncate">{item.author}</span>
               </span>
             ) : null}
-            <TagChips tags={item.tags} />
           </span>
         </span>
       </GridCell>
@@ -442,9 +444,11 @@ function PosterTile({
               >
                 {item.title}
               </a>
-              {item.author ? (
+              {/* Reserve the author line whenever an owner exists so async
+                  resolution never nudges the title up by a line. */}
+              {item.ownerId ? (
                 <span className="truncate text-[11px] leading-[14px] text-[rgba(233,238,242,0.64)]">
-                  {item.author}
+                  {item.author || ' '}
                 </span>
               ) : null}
             </span>

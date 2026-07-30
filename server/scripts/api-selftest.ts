@@ -4,6 +4,7 @@
 import http from 'node:http'
 import { createApp } from '../src/api.js'
 import { initHub } from '../src/hub.js'
+import { flushPersonas } from '../src/personas.js'
 import { flushStores } from '../src/store.js'
 
 const PORT = 18768
@@ -189,6 +190,7 @@ await fetch(`${base}/api/settings`, {
 }) // restore
 
 server.close()
+await flushPersonas() // debounced persona-cache write is unref'd; flush it explicitly
 await flushStores() // let queued settings writes land before exiting
 console.log(failures === 0 ? 'ALL PASS' : `${failures} FAILURES`)
 process.exit(failures === 0 ? 0 : 1)

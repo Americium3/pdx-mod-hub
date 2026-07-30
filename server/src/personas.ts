@@ -2,6 +2,7 @@ import path from 'node:path'
 import * as cheerio from 'cheerio'
 import { DATA_DIR } from './config.js'
 import { hub } from './hub.js'
+import { hostAllowed } from './images.js'
 import { readJson, writeJson } from './store.js'
 
 // SteamID64 -> persona name + avatar resolution for Browse/Detail author display.
@@ -62,18 +63,32 @@ function loadCache(): Map<string, PersonaEntry> {
 }
 
 let saveTimer: NodeJS.Timeout | null = null
+
+function saveNow(): Promise<void> {
+  const c = loadCache()
+  if (c.size > MAX_CACHE_ENTRIES) {
+    const sorted = [...c.entries()].sort((a, b) => a[1].fetchedAt - b[1].fetchedAt)
+    for (const [id] of sorted.slice(0, c.size - MAX_CACHE_ENTRIES)) c.delete(id)
+  }
+  return writeJson(FILE, Object.fromEntries(c))
+}
+
 function scheduleSave(): void {
   if (saveTimer) return
   saveTimer = setTimeout(() => {
     saveTimer = null
-    const c = loadCache()
-    if (c.size > MAX_CACHE_ENTRIES) {
-      const sorted = [...c.entries()].sort((a, b) => a[1].fetchedAt - b[1].fetchedAt)
-      for (const [id] of sorted.slice(0, c.size - MAX_CACHE_ENTRIES)) c.delete(id)
-    }
-    writeJson(FILE, Object.fromEntries(c))
+    void saveNow()
   }, 2_000)
   saveTimer.unref()
+}
+
+/** Flush the debounced cache write (call before an explicit process exit). */
+export function flushPersonas(): Promise<void> {
+  if (saveTimer) {
+    clearTimeout(saveTimer)
+    saveTimer = null
+  }
+  return saveNow()
 }
 
 function fresh(entry: PersonaEntry | undefined): boolean {
@@ -88,6 +103,12 @@ export function getPersona(id64: string | null | undefined): Persona | null {
   const entry = loadCache().get(id64)
   if (!entry || !fresh(entry) || entry.missing || !entry.name) return null
   return { name: entry.name, avatarUrl: entry.avatarUrl }
+}
+
+/** True when the id is fresh-negative-cached (deleted/private profile) — clients need not re-poll. */
+export function isKnownMissing(id64: string): boolean {
+  const e = loadCache().get(id64)
+  return !!e && fresh(e) && e.missing === true
 }
 
 function store(id64: string, entry: PersonaEntry): void {
@@ -118,24 +139,46 @@ function reportSuccess(): void {
   breaker.consecutiveFailures = 0
 }
 
-/** Enqueue unresolved ids for background resolution (dedupes, bounded). */
-export function requestPersonas(ids: Array<string | null | undefined>): void {
+/**
+ * Enqueue unresolved ids for background resolution (dedupes, bounded).
+ * Returns how many ids were actually accepted into the queue.
+ */
+export function requestPersonas(ids: Array<string | null | undefined>): number {
   const c = loadCache()
+  let queued = 0
   for (const id of ids) {
     if (!id || !ID64.test(id)) continue
     if (fresh(c.get(id))) continue
     if (pending.size >= MAX_PENDING) break
     pending.add(id)
+    queued++
   }
   if (pending.size > 0) void pump()
+  return queued
 }
+
+let resumeTimer: NodeJS.Timeout | null = null
 
 async function pump(): Promise<void> {
   if (pumping) return
   pumping = true
   try {
     while (pending.size > 0) {
-      if (breakerOpen()) return
+      if (breakerOpen()) {
+        // Schedule a guarded resume so the backlog drains once the breaker
+        // cooldown expires even when no further request touches personas.
+        if (pending.size > 0 && !resumeTimer) {
+          resumeTimer = setTimeout(
+            () => {
+              resumeTimer = null
+              void pump()
+            },
+            Math.max(0, breaker.openUntil - Date.now()) + 250,
+          )
+          resumeTimer.unref()
+        }
+        return
+      }
       const key = (hub.settings.steamWebApiKey ?? '').trim()
       const batch = [...pending].slice(0, key ? KEY_BATCH : 1)
       for (const id of batch) pending.delete(id)
@@ -156,6 +199,20 @@ async function pump(): Promise<void> {
 
 // ---------------------------------------------------------------- resolvers
 
+/**
+ * Only store avatar URLs that would pass the /api/img proxy allowlist
+ * (single source of truth: images.ts hostAllowed) — never trust Steam
+ * responses to hand us an arbitrary https URL.
+ */
+function safeAvatarUrl(raw: string): string | undefined {
+  try {
+    const u = new URL(raw)
+    return u.protocol === 'https:' && hostAllowed(u.hostname) ? raw : undefined
+  } catch {
+    return undefined
+  }
+}
+
 async function resolveXml(id64: string): Promise<void> {
   const res = await fetch(`https://steamcommunity.com/profiles/${id64}/?xml=1`, {
     headers: { 'User-Agent': BROWSER_UA },
@@ -174,7 +231,7 @@ async function resolveXml(id64: string): Promise<void> {
   }
   store(id64, {
     name,
-    avatarUrl: /^https:\/\//.test(avatar) ? avatar : undefined,
+    avatarUrl: safeAvatarUrl(avatar),
     fetchedAt: nowSec(),
   })
 }
@@ -188,19 +245,20 @@ async function resolveWithKey(key: string, ids: string[]): Promise<void> {
   const json = (await res.json()) as {
     response?: { players?: Array<{ steamid?: string; personaname?: string; avatarmedium?: string }> }
   }
+  // Shape-level failures must hit the breaker (ids stay uncached, retried later)
+  // instead of negative-caching the whole batch off a malformed response.
+  const players = json.response?.players
+  if (!Array.isArray(players)) throw new Error('GetPlayerSummaries malformed response')
   const seen = new Set<string>()
-  for (const p of json.response?.players ?? []) {
+  for (const p of players) {
     const id = String(p.steamid ?? '')
     if (!ID64.test(id)) continue
-    seen.add(id)
     const name = typeof p.personaname === 'string' ? p.personaname.trim() : ''
-    if (!name) continue
+    if (!name) continue // unseen -> negative-cached below, not refetched forever
+    seen.add(id)
     store(id, {
       name,
-      avatarUrl:
-        typeof p.avatarmedium === 'string' && /^https:\/\//.test(p.avatarmedium)
-          ? p.avatarmedium
-          : undefined,
+      avatarUrl: typeof p.avatarmedium === 'string' ? safeAvatarUrl(p.avatarmedium) : undefined,
       fetchedAt: nowSec(),
     })
   }

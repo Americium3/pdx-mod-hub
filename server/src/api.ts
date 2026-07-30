@@ -34,7 +34,7 @@ import {
   trackHelper,
 } from './hub.js'
 import { clearImageCache, imageCacheStats, serveImage } from './images.js'
-import { getPersona, requestPersonas } from './personas.js'
+import { getPersona, isKnownMissing, requestPersonas } from './personas.js'
 import { addClient, broadcastPoke } from './sse.js'
 import { isSteamRunning } from './steam/locate.js'
 import type { Settings } from './types.js'
@@ -155,23 +155,26 @@ export function createApp(port: number): express.Express {
   // Cached persona lookups; misses are enqueued for the background resolver,
   // so the client re-asks a few seconds later (resolution is never inline).
   app.get('/api/personas', (req, res) => {
-    const ids = String(req.query.ids ?? '')
+    const raw = String(req.query.ids ?? '')
       .split(',')
       .map(s => s.trim())
       .filter(Boolean)
-    if (ids.length === 0 || ids.length > 100 || !ids.every(id => /^\d{17}$/.test(id))) {
+    if (raw.length === 0 || raw.length > 100) {
       res.status(400).json({ error: 'ids must be 1-100 comma-separated SteamID64s' })
       return
     }
+    // Malformed ids are dropped instead of failing the whole batch.
+    const ids = raw.filter(id => /^\d{17}$/.test(id))
     const personas: Record<string, { name: string; avatarUrl?: string }> = {}
-    const missing: string[] = []
+    const missing: string[] = [] // fresh-negative: settled, clients need not re-poll
+    const unknown: string[] = []
     for (const id of ids) {
       const p = getPersona(id)
       if (p) personas[id] = p
-      else missing.push(id)
+      else if (isKnownMissing(id)) missing.push(id)
+      else unknown.push(id)
     }
-    requestPersonas(missing)
-    res.json({ personas, pending: missing.length })
+    res.json({ personas, missing, pending: requestPersonas(unknown) })
   })
 
   app.get('/api/feed', (req, res) => {

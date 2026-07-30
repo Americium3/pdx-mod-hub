@@ -92,7 +92,17 @@ function DetailContent({ modId }: { modId: string }): ReactNode {
       .mod(modId)
       .then(d => {
         if (!alive) return
-        setDetail(d)
+        // A refetch (summary-state flip) can land while the persona cache is
+        // still cold; keep any authorName/avatar the watcher already merged.
+        setDetail(prev =>
+          prev && prev.author === d.author
+            ? {
+                ...d,
+                authorName: d.authorName ?? prev.authorName,
+                authorAvatarUrl: d.authorAvatarUrl ?? prev.authorAvatarUrl,
+              }
+            : d,
+        )
         setLoadError(null)
         setLoading(false)
       })
@@ -267,7 +277,7 @@ function DetailContent({ modId }: { modId: string }): ReactNode {
                   href={authorHref}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className={`truncate ${n?.authorName ? '' : 'font-mono'}`}
+                  className={`truncate ${n?.authorName ? 'font-ui' : 'font-mono'}`}
                 >
                   {authorLabel ?? authorHref}
                 </a>

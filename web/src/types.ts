@@ -237,6 +237,9 @@ export interface BrowseItem {
 /** GET /api/personas?ids= — cached entries only; misses resolve in background. */
 export interface PersonasResponse {
   personas: Record<string, { name: string; avatarUrl?: string }>
+  /** fresh-negative ids (deleted/private profiles) — settled, no point re-polling */
+  missing?: string[]
+  /** count of ids accepted into the background resolver queue */
   pending: number
 }
 

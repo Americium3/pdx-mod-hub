@@ -264,11 +264,17 @@ export default function SettingsPage(): ReactNode {
     if (!apiKeyDirty) setApiKeyDraft(serverApiKey)
   }, [serverApiKey, apiKeyDirty])
 
-  const commitApiKey = useCallback((): void => {
-    setApiKeyDirty(false)
+  // Clear the dirty flag only after a successful save: dropping it up front
+  // re-runs the sync effect against the stale server value and wipes the typed
+  // draft while the PATCH is still in flight (or after a 422).
+  const commitApiKey = useCallback(async (): Promise<void> => {
     const v = apiKeyDraft.trim()
-    if (v === serverApiKey) return
-    void save({ steamWebApiKey: v })
+    if (v === serverApiKey) {
+      setApiKeyDirty(false)
+      return
+    }
+    const ok = await save({ steamWebApiKey: v })
+    if (ok) setApiKeyDirty(false)
   }, [apiKeyDraft, serverApiKey, save])
 
   /* ----- Check now ----- */
@@ -454,6 +460,8 @@ export default function SettingsPage(): ReactNode {
         >
           <SavedFlash show={showSaved && savedFields.includes('steamWebApiKey')} />
           <Input
+            type="password"
+            autoComplete="off"
             className="w-[300px] font-mono"
             value={apiKeyDraft}
             placeholder={t('settings.apiKeyEmpty')}
@@ -461,8 +469,15 @@ export default function SettingsPage(): ReactNode {
             onChange={e => {
               setApiKeyDraft(e.target.value)
               setApiKeyDirty(true)
+              // A stale 422 message must not outlive the text it described.
+              setFieldErrors(prev => {
+                if (!('steamWebApiKey' in prev)) return prev
+                const next = { ...prev }
+                delete next.steamWebApiKey
+                return next
+              })
             }}
-            onBlur={commitApiKey}
+            onBlur={() => void commitApiKey()}
             onKeyDown={e => {
               if (e.key === 'Enter') e.currentTarget.blur()
             }}

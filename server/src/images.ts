@@ -21,10 +21,15 @@ const MAX_OBJECT_BYTES = 10 * 1024 * 1024
 const MAX_REDIRECT_HOPS = 2
 const FETCH_TIMEOUT_MS = 15_000
 
-const ALLOWED_HOSTS = new Set(['images.steamusercontent.com', 'steamuserimages-a.akamaihd.net'])
+const ALLOWED_HOSTS = new Set([
+  'images.steamusercontent.com',
+  'steamuserimages-a.akamaihd.net',
+  'avatars.akamaihd.net', // legacy avatar CDN still served for old profiles
+])
 const ALLOWED_SUFFIXES = ['.steamstatic.com']
 
-function hostAllowed(hostname: string): boolean {
+/** Shared ingest/proxy allowlist (also used by personas.ts avatar validation). */
+export function hostAllowed(hostname: string): boolean {
   const h = hostname.toLowerCase()
   if (ALLOWED_HOSTS.has(h)) return true
   return ALLOWED_SUFFIXES.some(suf => h.endsWith(suf) && h.length > suf.length)

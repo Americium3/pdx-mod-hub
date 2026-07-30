@@ -50,6 +50,10 @@ export function loadSettings(): Settings {
   if (typeof raw.steamRootOverride === 'string' && raw.steamRootOverride.trim()) {
     s.steamRootOverride = raw.steamRootOverride.trim()
   }
+  // Mirrors the PATCH /api/settings validation (server/src/api.ts).
+  if (typeof raw.steamWebApiKey === 'string' && /^[0-9A-F]{32}$/i.test(raw.steamWebApiKey.trim())) {
+    s.steamWebApiKey = raw.steamWebApiKey.trim()
+  }
   if ('pollIntervalMin' in raw) void writeJson(SETTINGS_FILE, s) // persist the migration
   return s
 }
