@@ -328,6 +328,12 @@ const dict = {
   },
   'settings.cacheCleared': { en: 'Image cache cleared', zh: '图片缓存已清空' },
   'settings.warnings': { en: 'Warnings', zh: '警告' },
+  'settings.apiKey': { en: 'Steam Web API key', zh: 'Steam Web API 密钥' },
+  'settings.apiKeyHint': {
+    en: 'Optional. Speeds up author-name resolution via batched GetPlayerSummaries; leave empty to use the keyless profile lookup.',
+    zh: '可选。通过批量 GetPlayerSummaries 加速作者名解析；留空则使用免密钥的资料页查询。',
+  },
+  'settings.apiKeyEmpty': { en: 'not set', zh: '未设置' },
 
   // theme
   'theme.auto': { en: 'Auto', zh: '跟随系统' },

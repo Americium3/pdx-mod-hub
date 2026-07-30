@@ -186,6 +186,8 @@ export interface Settings {
   changelogPrefetch: boolean
   language: 'en' | 'zh'
   steamRootOverride?: string
+  /** Optional ISteamUser key: switches persona resolution to batched GetPlayerSummaries. */
+  steamWebApiKey?: string
 }
 
 export interface SubsCache {

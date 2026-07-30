@@ -27,6 +27,7 @@ import { Stamp } from '../components/Stamp'
 import { StateDot } from '../components/StateDot'
 import type { MsgKey } from '../i18n'
 import { DUR, SNAP, useReducedMotionSafe } from '../motion'
+import { watchPersonas } from '../personas'
 import { useHub } from '../store'
 import type { ActionProgress, ActionStage, ModDetail, ModState } from '../types'
 import { TERMINAL_STAGES } from '../types'
@@ -107,6 +108,23 @@ function DetailContent({ modId }: { modId: string }): ReactNode {
 
   const n = useMemo(() => (detail ? normalizeDetail(detail) : undefined), [detail])
 
+  // Persona resolution is asynchronous server-side: when the detail landed
+  // without a resolved name, re-ask a couple of times and merge it in.
+  const creatorId = detail?.author && /^\d{17}$/.test(detail.author) ? detail.author : undefined
+  const hasAuthorName = Boolean(detail?.authorName)
+  useEffect(() => {
+    if (!creatorId || hasAuthorName) return
+    return watchPersonas([creatorId], personas => {
+      const p = personas[creatorId]
+      if (!p) return
+      setDetail(prev =>
+        prev && prev.author === creatorId
+          ? { ...prev, authorName: p.name, authorAvatarUrl: prev.authorAvatarUrl ?? p.avatarUrl }
+          : prev,
+      )
+    })
+  }, [creatorId, hasAuthorName])
+
   /* ----- merged view (summary is fresher for state; detail is richer) ----- */
   const appId = summary?.appId ?? n?.appId
   const title = n?.title ?? summary?.title ?? modId
@@ -165,6 +183,7 @@ function DetailContent({ modId }: { modId: string }): ReactNode {
   }
 
   const authorId = n?.author
+  const authorLabel = n?.authorName ?? authorId
   const authorHref = profileUrlOf(authorId, n?.authorUrl)
   const avatar = img(n?.authorAvatarUrl)
 
@@ -248,12 +267,12 @@ function DetailContent({ modId }: { modId: string }): ReactNode {
                   href={authorHref}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="truncate font-mono"
+                  className={`truncate ${n?.authorName ? '' : 'font-mono'}`}
                 >
-                  {authorId ?? authorHref}
+                  {authorLabel ?? authorHref}
                 </a>
               ) : (
-                <span className="truncate">{authorId ?? '—'}</span>
+                <span className="truncate">{authorLabel ?? '—'}</span>
               )}
             </span>
           </StatRow>

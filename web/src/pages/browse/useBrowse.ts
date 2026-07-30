@@ -3,6 +3,7 @@
 // pagination up to capped:true; stale responses are discarded by sequence.
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { api } from '../../api'
+import { watchPersonas } from '../../personas'
 import type { BrowseItem, BrowseSort } from '../../types'
 
 export interface BrowseData {
@@ -99,6 +100,22 @@ export function useBrowse(
     setError(null)
     fetchPage(1, false)
   }, [fetchPage])
+
+  // Persona names resolve asynchronously server-side; re-ask a couple of times
+  // and merge whatever lands. Re-runs only when items actually change (a merge
+  // with zero resolutions never calls apply, so this cannot loop).
+  useEffect(() => {
+    const missing = items.filter(i => i.ownerId && !i.author).map(i => i.ownerId)
+    if (missing.length === 0) return
+    return watchPersonas(missing, personas => {
+      setItems(prev =>
+        prev.map(it => {
+          const p = it.ownerId && !it.author ? personas[it.ownerId] : undefined
+          return p ? { ...it, author: p.name, authorAvatarUrl: p.avatarUrl } : it
+        }),
+      )
+    })
+  }, [items])
 
   const loadMore = useCallback(() => {
     fetchPage(Math.max(1, pageRef.current) + 1, true)

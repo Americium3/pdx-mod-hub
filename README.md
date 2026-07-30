@@ -55,6 +55,7 @@ Settings live in the UI (Settings page) and persist to `data/settings.json`:
 | `changelogPrefetch` | `true` | Fetch change notes automatically when an update is detected |
 | `port` | 8768 | Not exposed in the UI — edit `data/settings.json` directly; requires restart |
 | `steamRootOverride` | *(unset)* | Override the auto-detected Steam install root |
+| `steamWebApiKey` | *(unset)* | Optional [Steam Web API key](https://steamcommunity.com/dev/apikey); switches author-name resolution to batched `GetPlayerSummaries` |
 
 Theme (auto/dark/light) is client-side (`localStorage`), not a server setting. All caches and state live under `data/` (gitignored).
 
@@ -70,7 +71,7 @@ scripts/  Hidden-start VBS and dev utilities
 
 ## Known limitations (v1)
 
-- Browse results show no author display name (Steam returns a raw SteamID64; persona resolution is planned).
+- Author names resolve asynchronously: Steam returns a raw SteamID64, and the app resolves persona names/avatars in the background (keyless profile lookup, or batched GetPlayerSummaries when a Steam Web API key is configured). Freshly browsed rows may show no author for a few seconds until the cache fills.
 - Mod dependencies ("required items") surface in Browse when Steam provides them; the Detail sheet's dependency lists and the reverse-dependency index are placeholders.
 - Games whose modding lives on Paradox Mods (Cities: Skylines II, Millennia, Empire of Sin, BATTLETECH) are listed but not browsable.
 - Changelog scraping depends on steamcommunity.com page markup; the parser is tolerant and fails soft, but a Steam redesign may require a small update.

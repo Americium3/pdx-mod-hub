@@ -21,6 +21,7 @@ import type {
   HubState,
   ModDetail,
   ModState,
+  PersonasResponse,
   Settings,
   SsePoke,
 } from './types'
@@ -189,6 +190,7 @@ function mapDetail(raw: Raw): ModDetail {
     votesDown,
     score,
     voteCount,
+    authorName: str(raw.authorName),
     authorAvatarUrl: str(raw.authorAvatarUrl),
     authorUrl: str(raw.authorUrl),
     children: idList(raw.children).length > 0 ? idList(raw.children) : idList(deps.requires),
@@ -255,6 +257,9 @@ function mapBrowseItem(raw: Raw): BrowseItem {
     subscribed: raw.subscribed === true,
     installed: raw.installed === true,
     children: idList(raw.children),
+    ownerId: str(raw.owner) ?? str(raw.ownerId),
+    author: str(raw.author),
+    authorAvatarUrl: str(raw.authorAvatarUrl),
   }
 }
 
@@ -337,6 +342,10 @@ export const api = {
 
   /** POST /api/imgcache clears the proxy cache (returns fresh stats). */
   clearImageCache: (): Promise<{ ok: boolean }> => send('POST', '/api/imgcache'),
+
+  /** Cached persona lookups; server enqueues misses for background resolution. */
+  personas: (ids: string[]): Promise<PersonasResponse> =>
+    get(`/api/personas?ids=${ids.map(encodeURIComponent).join(',')}`),
 }
 
 /** Route any Steam art through the local proxy (SSRF-hardened, cached). */

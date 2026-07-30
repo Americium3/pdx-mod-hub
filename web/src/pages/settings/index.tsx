@@ -255,6 +255,22 @@ export default function SettingsPage(): ReactNode {
     if (clamped !== serverInterval) void save({ pollIntervalSec: clamped })
   }, [intervalDraft, serverInterval, save])
 
+  /* ----- Steam Web API key (optional; batched persona resolution) ----- */
+  const serverApiKey = settings?.steamWebApiKey ?? ''
+  const [apiKeyDraft, setApiKeyDraft] = useState('')
+  const [apiKeyDirty, setApiKeyDirty] = useState(false)
+
+  useEffect(() => {
+    if (!apiKeyDirty) setApiKeyDraft(serverApiKey)
+  }, [serverApiKey, apiKeyDirty])
+
+  const commitApiKey = useCallback((): void => {
+    setApiKeyDirty(false)
+    const v = apiKeyDraft.trim()
+    if (v === serverApiKey) return
+    void save({ steamWebApiKey: v })
+  }, [apiKeyDraft, serverApiKey, save])
+
   /* ----- Check now ----- */
   const [checking, setChecking] = useState(false)
   const onCheckNow = useCallback(async (): Promise<void> => {
@@ -428,6 +444,28 @@ export default function SettingsPage(): ReactNode {
             disabled={!settings || prefetchPending !== null}
             onChange={next => void onPrefetch(next)}
             aria-label={t('settings.prefetch')}
+          />
+        </Row>
+
+        <Row
+          label={<ReservedText k="settings.apiKey" />}
+          hint={t('settings.apiKeyHint')}
+          error={fieldErrors.steamWebApiKey}
+        >
+          <SavedFlash show={showSaved && savedFields.includes('steamWebApiKey')} />
+          <Input
+            className="w-[300px] font-mono"
+            value={apiKeyDraft}
+            placeholder={t('settings.apiKeyEmpty')}
+            aria-label={t('settings.apiKey')}
+            onChange={e => {
+              setApiKeyDraft(e.target.value)
+              setApiKeyDirty(true)
+            }}
+            onBlur={commitApiKey}
+            onKeyDown={e => {
+              if (e.key === 'Enter') e.currentTarget.blur()
+            }}
           />
         </Row>
       </Section>

@@ -18,6 +18,7 @@ import {
 } from 'react'
 import { Button } from '../../components/Button'
 import { GameGlyph } from '../../components/GamePill'
+import { img } from '../../api'
 import { GridCell, GridRow, GridTable } from '../../components/GridTable'
 import { ImageFrame } from '../../components/ImageFrame'
 import { Input } from '../../components/Input'
@@ -348,6 +349,19 @@ function BrowseRow({
             {item.banned ? <BannedTag /> : null}
           </span>
           <span className="flex min-w-0 items-center gap-[6px]">
+            {item.author ? (
+              <span className="flex min-w-0 shrink-0 items-center gap-[4px] text-[11px] leading-[14px] text-[var(--text-3)]">
+                {item.authorAvatarUrl ? (
+                  <img
+                    src={img(item.authorAvatarUrl)}
+                    alt=""
+                    loading="lazy"
+                    className="h-[14px] w-[14px] rounded-[2px] border border-[var(--line-1)]"
+                  />
+                ) : null}
+                <span className="max-w-[140px] truncate">{item.author}</span>
+              </span>
+            ) : null}
             <TagChips tags={item.tags} />
           </span>
         </span>
@@ -428,6 +442,11 @@ function PosterTile({
               >
                 {item.title}
               </a>
+              {item.author ? (
+                <span className="truncate text-[11px] leading-[14px] text-[rgba(233,238,242,0.64)]">
+                  {item.author}
+                </span>
+              ) : null}
             </span>
             <span
               className="voice-mono-sm shrink-0 text-[rgba(233,238,242,0.64)]"
