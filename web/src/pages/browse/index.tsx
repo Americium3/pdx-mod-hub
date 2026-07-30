@@ -18,6 +18,7 @@ import {
 } from 'react'
 import { Button } from '../../components/Button'
 import { GameGlyph } from '../../components/GamePill'
+import { img } from '../../api'
 import { GridCell, GridRow, GridTable } from '../../components/GridTable'
 import { ImageFrame } from '../../components/ImageFrame'
 import { Input } from '../../components/Input'
@@ -348,7 +349,22 @@ function BrowseRow({
             {item.banned ? <BannedTag /> : null}
           </span>
           <span className="flex min-w-0 items-center gap-[6px]">
+            {/* Tags render first so an async persona resolution never shifts
+                them — the author name fades into the trailing space. */}
             <TagChips tags={item.tags} />
+            {item.author ? (
+              <span className="flex min-w-0 shrink-0 items-center gap-[4px] text-[11px] leading-[14px] text-[var(--text-3)] transition-opacity duration-150">
+                {item.authorAvatarUrl ? (
+                  <img
+                    src={img(item.authorAvatarUrl)}
+                    alt=""
+                    loading="lazy"
+                    className="h-[14px] w-[14px] rounded-[2px] border border-[var(--line-1)]"
+                  />
+                ) : null}
+                <span className="max-w-[140px] truncate">{item.author}</span>
+              </span>
+            ) : null}
           </span>
         </span>
       </GridCell>
@@ -428,6 +444,13 @@ function PosterTile({
               >
                 {item.title}
               </a>
+              {/* Reserve the author line whenever an owner exists so async
+                  resolution never nudges the title up by a line. */}
+              {item.ownerId ? (
+                <span className="truncate text-[11px] leading-[14px] text-[rgba(233,238,242,0.64)]">
+                  {item.author || ' '}
+                </span>
+              ) : null}
             </span>
             <span
               className="voice-mono-sm shrink-0 text-[rgba(233,238,242,0.64)]"

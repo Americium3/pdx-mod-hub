@@ -34,6 +34,7 @@ import {
   trackHelper,
 } from './hub.js'
 import { clearImageCache, imageCacheStats, serveImage } from './images.js'
+import { getPersona, isKnownMissing, requestPersonas } from './personas.js'
 import { addClient, broadcastPoke } from './sse.js'
 import { isSteamRunning } from './steam/locate.js'
 import type { Settings } from './types.js'
@@ -140,7 +141,40 @@ export function createApp(port: number): express.Express {
       res.status(404).json({ error: 'unknown mod' })
       return
     }
+    const creator = typeof detail.creator === 'string' ? detail.creator : null
+    const persona = getPersona(creator)
+    if (persona) {
+      detail.authorName = persona.name
+      detail.authorAvatarUrl = persona.avatarUrl ?? null
+    } else if (creator) {
+      requestPersonas([creator])
+    }
     res.json(detail)
+  })
+
+  // Cached persona lookups; misses are enqueued for the background resolver,
+  // so the client re-asks a few seconds later (resolution is never inline).
+  app.get('/api/personas', (req, res) => {
+    const raw = String(req.query.ids ?? '')
+      .split(',')
+      .map(s => s.trim())
+      .filter(Boolean)
+    if (raw.length === 0 || raw.length > 100) {
+      res.status(400).json({ error: 'ids must be 1-100 comma-separated SteamID64s' })
+      return
+    }
+    // Malformed ids are dropped instead of failing the whole batch.
+    const ids = raw.filter(id => /^\d{17}$/.test(id))
+    const personas: Record<string, { name: string; avatarUrl?: string }> = {}
+    const missing: string[] = [] // fresh-negative: settled, clients need not re-poll
+    const unknown: string[] = []
+    for (const id of ids) {
+      const p = getPersona(id)
+      if (p) personas[id] = p
+      else if (isKnownMissing(id)) missing.push(id)
+      else unknown.push(id)
+    }
+    res.json({ personas, missing, pending: requestPersonas(unknown) })
   })
 
   app.get('/api/feed', (req, res) => {
@@ -392,15 +426,23 @@ export function createApp(port: number): express.Express {
       }
       // server-side cross-reference against account set + ACF (must-fix 8)
       const acf = hub.acfByApp.get(appId)
+      const unresolvedOwners: string[] = []
       const items = (Array.isArray(result.items) ? result.items : []).map(raw => {
         const item = raw as Record<string, unknown>
         const id = String(item.id ?? '')
+        const owner = typeof item.owner === 'string' ? item.owner : null
+        const persona = getPersona(owner)
+        if (owner && !persona) unresolvedOwners.push(owner)
         return {
           ...item,
           subscribed: accountOf(id, appId)?.subscribed ?? false,
           installed: acf?.has(id) ?? false,
+          author: persona?.name ?? null,
+          authorAvatarUrl: persona?.avatarUrl ?? null,
         }
       })
+      // async by design: routes serve the cache, the queue fills it, the client re-asks
+      requestPersonas(unresolvedOwners)
       const total = typeof result.total === 'number' ? result.total : items.length
       res.json({ items, page, perPage: BROWSE_PER_PAGE, total, capped: total > BROWSE_RESULT_CAP })
     } catch (e) {
@@ -423,7 +465,13 @@ export function createApp(port: number): express.Express {
       return
     }
     const FORBIDDEN = new Set(['__proto__', 'constructor', 'prototype'])
-    const ALLOWED = new Set(['pollIntervalSec', 'changelogPrefetch', 'language', 'steamRootOverride'])
+    const ALLOWED = new Set([
+      'pollIntervalSec',
+      'changelogPrefetch',
+      'language',
+      'steamRootOverride',
+      'steamWebApiKey',
+    ])
     // Map, not a plain object: assigning errors['__proto__'] on an object would be
     // silently swallowed by the prototype setter and skip the 422.
     const errors = new Map<string, string>()
@@ -462,6 +510,16 @@ export function createApp(port: number): express.Express {
         next.steamRootOverride = v.trim() || undefined
       } else {
         errors.set('steamRootOverride', 'expected a path string or null')
+      }
+    }
+    if ('steamWebApiKey' in body && !errors.has('steamWebApiKey')) {
+      const v = body.steamWebApiKey
+      if (v === null || v === '') {
+        next.steamWebApiKey = undefined
+      } else if (typeof v === 'string' && /^[0-9A-F]{32}$/i.test(v.trim())) {
+        next.steamWebApiKey = v.trim()
+      } else {
+        errors.set('steamWebApiKey', 'expected a 32-hex-character Steam Web API key or empty')
       }
     }
     if (errors.size > 0) {

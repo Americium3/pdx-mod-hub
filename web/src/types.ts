@@ -54,6 +54,8 @@ export interface ModDetail extends ModSummary {
   /** Steam star score 0..1 and vote count ("Not enough ratings" under ~10) */
   score?: number
   voteCount?: number
+  /** resolved persona display name (author still carries the raw SteamID64 fallback) */
+  authorName?: string
   authorAvatarUrl?: string
   authorUrl?: string
   /** required items (children) ids */
@@ -91,6 +93,9 @@ export interface Settings {
   dataFolder?: string
   imageCacheBytes?: number
   port?: number
+  steamRootOverride?: string
+  /** Optional ISteamUser key: switches persona resolution to batched GetPlayerSummaries. */
+  steamWebApiKey?: string
 }
 
 export interface LibraryInfo {
@@ -222,6 +227,20 @@ export interface BrowseItem {
   subscribed?: boolean
   installed?: boolean
   children?: string[]
+  /** raw SteamID64 of the mod author (always present when Steam provides it) */
+  ownerId?: string
+  /** persona name/avatar — present only once the server-side cache resolves */
+  author?: string
+  authorAvatarUrl?: string
+}
+
+/** GET /api/personas?ids= — cached entries only; misses resolve in background. */
+export interface PersonasResponse {
+  personas: Record<string, { name: string; avatarUrl?: string }>
+  /** fresh-negative ids (deleted/private profiles) — settled, no point re-polling */
+  missing?: string[]
+  /** count of ids accepted into the background resolver queue */
+  pending: number
 }
 
 /** POST /api/browse/:appId {q, sort, page} */

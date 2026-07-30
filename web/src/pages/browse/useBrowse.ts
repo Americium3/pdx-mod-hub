@@ -3,6 +3,7 @@
 // pagination up to capped:true; stale responses are discarded by sequence.
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { api } from '../../api'
+import { watchPersonas } from '../../personas'
 import type { BrowseItem, BrowseSort } from '../../types'
 
 export interface BrowseData {
@@ -99,6 +100,36 @@ export function useBrowse(
     setError(null)
     fetchPage(1, false)
   }, [fetchPage])
+
+  // Persona names resolve asynchronously server-side; re-ask a few times and
+  // merge whatever lands. apply is skipped when the response is empty, and the
+  // setter returns prev unchanged when nothing merges, so this cannot loop.
+  // Known-missing profiles settle to an empty-string sentinel ('' renders as
+  // absent) so they leave the re-ask set and free slots in the 100-id cap.
+  useEffect(() => {
+    const missing = items.filter(i => i.ownerId && i.author == null).map(i => i.ownerId)
+    if (missing.length === 0) return
+    return watchPersonas(missing, (personas, knownMissing) => {
+      const settled = new Set(knownMissing ?? [])
+      setItems(prev => {
+        let changed = false
+        const next = prev.map(it => {
+          if (!it.ownerId || it.author != null) return it
+          const p = personas[it.ownerId]
+          if (p) {
+            changed = true
+            return { ...it, author: p.name, authorAvatarUrl: p.avatarUrl }
+          }
+          if (settled.has(it.ownerId)) {
+            changed = true
+            return { ...it, author: '' }
+          }
+          return it
+        })
+        return changed ? next : prev
+      })
+    })
+  }, [items])
 
   const loadMore = useCallback(() => {
     fetchPage(Math.max(1, pageRef.current) + 1, true)

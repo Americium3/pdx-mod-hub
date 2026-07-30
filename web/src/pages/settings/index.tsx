@@ -255,6 +255,28 @@ export default function SettingsPage(): ReactNode {
     if (clamped !== serverInterval) void save({ pollIntervalSec: clamped })
   }, [intervalDraft, serverInterval, save])
 
+  /* ----- Steam Web API key (optional; batched persona resolution) ----- */
+  const serverApiKey = settings?.steamWebApiKey ?? ''
+  const [apiKeyDraft, setApiKeyDraft] = useState('')
+  const [apiKeyDirty, setApiKeyDirty] = useState(false)
+
+  useEffect(() => {
+    if (!apiKeyDirty) setApiKeyDraft(serverApiKey)
+  }, [serverApiKey, apiKeyDirty])
+
+  // Clear the dirty flag only after a successful save: dropping it up front
+  // re-runs the sync effect against the stale server value and wipes the typed
+  // draft while the PATCH is still in flight (or after a 422).
+  const commitApiKey = useCallback(async (): Promise<void> => {
+    const v = apiKeyDraft.trim()
+    if (v === serverApiKey) {
+      setApiKeyDirty(false)
+      return
+    }
+    const ok = await save({ steamWebApiKey: v })
+    if (ok) setApiKeyDirty(false)
+  }, [apiKeyDraft, serverApiKey, save])
+
   /* ----- Check now ----- */
   const [checking, setChecking] = useState(false)
   const onCheckNow = useCallback(async (): Promise<void> => {
@@ -428,6 +450,37 @@ export default function SettingsPage(): ReactNode {
             disabled={!settings || prefetchPending !== null}
             onChange={next => void onPrefetch(next)}
             aria-label={t('settings.prefetch')}
+          />
+        </Row>
+
+        <Row
+          label={<ReservedText k="settings.apiKey" />}
+          hint={t('settings.apiKeyHint')}
+          error={fieldErrors.steamWebApiKey}
+        >
+          <SavedFlash show={showSaved && savedFields.includes('steamWebApiKey')} />
+          <Input
+            type="password"
+            autoComplete="off"
+            className="w-[300px] font-mono"
+            value={apiKeyDraft}
+            placeholder={t('settings.apiKeyEmpty')}
+            aria-label={t('settings.apiKey')}
+            onChange={e => {
+              setApiKeyDraft(e.target.value)
+              setApiKeyDirty(true)
+              // A stale 422 message must not outlive the text it described.
+              setFieldErrors(prev => {
+                if (!('steamWebApiKey' in prev)) return prev
+                const next = { ...prev }
+                delete next.steamWebApiKey
+                return next
+              })
+            }}
+            onBlur={() => void commitApiKey()}
+            onKeyDown={e => {
+              if (e.key === 'Enter') e.currentTarget.blur()
+            }}
           />
         </Row>
       </Section>

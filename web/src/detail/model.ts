@@ -43,6 +43,8 @@ export interface NormalizedDetail {
   score?: number
   voteCount?: number
   author?: string
+  /** resolved persona display name; author keeps the raw SteamID64 fallback */
+  authorName?: string
   authorUrl?: string
   authorAvatarUrl?: string
   children: string[]
@@ -94,6 +96,7 @@ export function normalizeDetail(d: ModDetail): NormalizedDetail {
     score: num(raw.score),
     voteCount,
     author: str(raw.author) ?? str(raw.creator),
+    authorName: str((raw as { authorName?: unknown }).authorName),
     authorUrl: str(raw.authorUrl),
     authorAvatarUrl: str(raw.authorAvatarUrl),
     children: idList(raw.children).length > 0 ? idList(raw.children) : idList(raw.dependencies?.requires),
