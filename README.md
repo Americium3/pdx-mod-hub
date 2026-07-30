@@ -45,6 +45,8 @@ npm run start     # server on http://127.0.0.1:8768
 
 Open http://127.0.0.1:8768 in your browser. For development, `npm run dev` runs the server plus a Vite dev server on :5173 with hot reload.
 
+`dist/` is gitignored, so a fresh clone must build before it can start. The same applies after touching anything under `web/public/` — the brand assets live there and reach `dist/` only through a build, so skipping it leaves every favicon and manifest request returning 404.
+
 To start hidden at login, put a shortcut to `scripts/run_hub_hidden.vbs` in `shell:startup`.
 
 ## Configuration
