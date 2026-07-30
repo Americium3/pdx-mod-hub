@@ -64,6 +64,7 @@ const dict = {
   'palette.switchLang': { en: 'Switch language → 中文', zh: '切换语言 → English' },
   'palette.switchTheme': { en: 'Switch theme', zh: '切换主题' },
   'palette.hint': { en: '↑↓ select · ↵ open · esc close', zh: '↑↓ 选择 · ↵ 打开 · esc 关闭' },
+  'palette.open': { en: 'Command palette', zh: '命令面板' },
 
   // toasts / generic feedback
   'toast.actionFailed': { en: 'Action failed: {e}', zh: '操作失败：{e}' },

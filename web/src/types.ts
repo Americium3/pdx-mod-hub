@@ -210,13 +210,10 @@ export type BrowseSort =
 export interface BrowseItem {
   id: string
   title: string
-  author?: string
-  authorAvatarUrl?: string
   previewUrl?: string
   timeCreated?: number
   timeUpdated?: number
   subs?: number
-  sizeWorkshop?: number
   score?: number
   voteCount?: number
   tags?: string[]

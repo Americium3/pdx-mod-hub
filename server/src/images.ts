@@ -4,6 +4,7 @@ import fs from 'node:fs'
 import net from 'node:net'
 import path from 'node:path'
 import type { Request, Response } from 'express'
+import { Agent } from 'undici'
 import { DATA_DIR } from './config.js'
 
 // /api/img SSRF hardening (must-fix 6):
@@ -73,25 +74,37 @@ function ipBlocked(addr: string): boolean {
   return true // not an IP literal at all
 }
 
-/** Resolve the host and reject when ANY answer is private/loopback/link-local. */
-async function dnsSafe(hostname: string): Promise<boolean> {
-  if (net.isIP(hostname)) return false // IP literals never pass the allowlist anyway
+interface SafeAddr {
+  address: string
+  family: number
+}
+
+/**
+ * Resolve the host ONCE and reject when any answer is private/loopback/link-local.
+ * Returns the validated addresses so the caller can pin the TCP connection to
+ * exactly these IPs — closing the TOCTOU window between validation and the fetch
+ * re-resolving the name to a different (attacker-controlled) address (must-fix 6).
+ */
+async function resolveSafe(hostname: string): Promise<SafeAddr[] | null> {
+  if (net.isIP(hostname)) return null // IP literals never pass the allowlist anyway
   let addrs
   try {
     addrs = await dns.lookup(hostname, { all: true, verbatim: true })
   } catch {
-    return false
+    return null
   }
-  if (addrs.length === 0) return false
-  return addrs.every(a => !ipBlocked(a.address))
+  if (addrs.length === 0) return null
+  if (!addrs.every(a => !ipBlocked(a.address))) return null
+  return addrs.map(a => ({ address: a.address, family: a.family }))
 }
 
-async function validateUrl(u: URL): Promise<boolean> {
-  if (u.protocol !== 'https:') return false
-  if (u.username || u.password) return false
-  if (u.port && u.port !== '443') return false
-  if (!hostAllowed(u.hostname)) return false
-  return dnsSafe(u.hostname)
+/** Returns the validated pinned addresses for a legal URL, or null if it fails validation. */
+async function validateUrl(u: URL): Promise<SafeAddr[] | null> {
+  if (u.protocol !== 'https:') return null
+  if (u.username || u.password) return null
+  if (u.port && u.port !== '443') return null
+  if (!hostAllowed(u.hostname)) return null
+  return resolveSafe(u.hostname)
 }
 
 /** Magic-byte image sniff; returns the MIME type or null if not a known raster image. */
@@ -207,30 +220,76 @@ export function clearImageCache(): number {
 
 // ---------------------------------------------------------------- fetch + serve
 
-async function fetchWithManualRedirects(start: URL): Promise<globalThis.Response | null> {
+/**
+ * A dispatcher that pins DNS to the pre-validated addresses so undici cannot
+ * re-resolve the hostname to a different IP after validation (TOCTOU, must-fix 6).
+ * The Host header stays the original hostname (TLS SNI/cert still verified).
+ */
+function pinnedAgent(addrs: SafeAddr[]): Agent {
+  return new Agent({
+    connect: {
+      lookup: (_hostname, _opts, cb) => {
+        cb(null, addrs.map(a => ({ address: a.address, family: a.family })))
+      },
+    },
+  })
+}
+
+interface FetchOutcome {
+  res: globalThis.Response
+  /** Close the pinned dispatcher(s); call AFTER the body has been consumed. */
+  cleanup: () => void
+}
+
+async function fetchWithManualRedirects(start: URL): Promise<FetchOutcome | null> {
   let current = start
+  // Agents must stay open until the caller has read the response body, so they
+  // are collected and closed together via the returned cleanup().
+  const agents: Agent[] = []
+  const cleanup = (): void => {
+    for (const a of agents) void a.close().catch(() => undefined)
+  }
   for (let hop = 0; hop <= MAX_REDIRECT_HOPS; hop++) {
-    if (!(await validateUrl(current))) return null
-    const res = await fetch(current, {
-      redirect: 'manual',
-      headers: { Accept: 'image/*' },
-      signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
-    })
+    const addrs = await validateUrl(current)
+    if (!addrs) {
+      cleanup()
+      return null
+    }
+    const agent = pinnedAgent(addrs)
+    agents.push(agent)
+    let res: globalThis.Response
+    try {
+      res = await fetch(current, {
+        redirect: 'manual',
+        headers: { Accept: 'image/*' },
+        signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+        // @ts-expect-error undici-specific option accepted by Node's global fetch
+        dispatcher: agent,
+      })
+    } catch (e) {
+      cleanup()
+      throw e
+    }
     if (res.status >= 300 && res.status < 400) {
       const loc = res.headers.get('location')
       res.body?.cancel().catch(() => undefined)
-      if (!loc || hop === MAX_REDIRECT_HOPS) return null
+      if (!loc || hop === MAX_REDIRECT_HOPS) {
+        cleanup()
+        return null
+      }
       let next: URL
       try {
         next = new URL(loc, current)
       } catch {
+        cleanup()
         return null
       }
       current = next // re-validated at the top of the next hop
       continue
     }
-    return res
+    return { res, cleanup }
   }
+  cleanup()
   return null
 }
 
@@ -284,12 +343,15 @@ export async function serveImage(req: Request, res: Response): Promise<void> {
     return
   }
 
+  let cleanup: (() => void) | null = null
   try {
-    const upstream = await fetchWithManualRedirects(url)
-    if (!upstream) {
+    const outcome = await fetchWithManualRedirects(url)
+    if (!outcome) {
       res.status(403).end()
       return
     }
+    cleanup = outcome.cleanup
+    const upstream = outcome.res
     if (!upstream.ok) {
       upstream.body?.cancel().catch(() => undefined)
       res.status(502).end()
@@ -324,6 +386,8 @@ export async function serveImage(req: Request, res: Response): Promise<void> {
     res.end(buf)
   } catch {
     res.status(502).end()
+  } finally {
+    cleanup?.() // close pinned dispatcher(s) after the body has been consumed
   }
 }
 

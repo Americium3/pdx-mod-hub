@@ -284,6 +284,59 @@ export function HubProvider({ children }: { children: ReactNode }): ReactNode {
     [bumpSeq, scheduleRefresh, toast],
   )
 
+  // Reconnect catch-up for in-flight actions (must-fix 4): the terminal SSE poke
+  // for an action can be dropped during an SSE gap, leaving the action stuck busy
+  // forever (there is no per-client poke replay). On every (re)open, query the
+  // authoritative job record for each non-terminal action and merge it; a 404
+  // means the record was evicted, so drop the local entry.
+  const reconcileActions = useCallback(() => {
+    setActions(prev => {
+      for (const entry of Object.values(prev)) {
+        if (entry.endedAt !== undefined) continue
+        api.actionStatus(entry.actionId).then(
+          job => {
+            setActions(cur => {
+              const existing = cur[entry.actionId]
+              if (!existing) return cur
+              const terminal = TERMINAL_STAGES.includes(job.stage)
+              const merged: ActionProgress = {
+                ...existing,
+                stage: job.stage,
+                kind: job.kind ?? existing.kind,
+                appId: job.appId ?? existing.appId,
+                modId: job.modId ?? existing.modId,
+                detail: job.detail ?? existing.detail,
+                queuePosition: job.queuePosition,
+                endedAt: terminal ? (existing.endedAt ?? Date.now()) : existing.endedAt,
+              }
+              const next = { ...cur, [entry.actionId]: merged }
+              if (terminal) {
+                setTimeout(() => {
+                  setActions(p => {
+                    if (!p[entry.actionId]) return p
+                    const { [entry.actionId]: _gone, ...rest } = p
+                    return rest
+                  })
+                }, 6000)
+              }
+              return next
+            })
+          },
+          e => {
+            if (e instanceof ApiError && e.status === 404) {
+              setActions(cur => {
+                if (!cur[entry.actionId]) return cur
+                const { [entry.actionId]: _gone, ...rest } = cur
+                return rest
+              })
+            }
+          },
+        )
+      }
+      return prev
+    })
+  }, [])
+
   useEffect(() => {
     void refresh()
     const close = connectEvents({
@@ -293,11 +346,15 @@ export function HubProvider({ children }: { children: ReactNode }): ReactNode {
         // Reconnect contract: refetch state; pages catch feed up via after_seq.
         void refresh()
         setFeedPulse(p => p + 1)
+        // Catch up in-flight actions whose terminal poke may have been dropped
+        // during the SSE gap: query the authoritative job record and merge it in
+        // (drop the entry on 404 — the job record was already evicted).
+        reconcileActions()
       },
       onDown: () => setSseConnected(false),
     })
     return close
-  }, [refresh, onPoke])
+  }, [refresh, onPoke, reconcileActions])
 
   /* ----- keep server-side language default in sync ----- */
   useEffect(() => {

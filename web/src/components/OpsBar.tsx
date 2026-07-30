@@ -198,7 +198,7 @@ export function OpsBar({
 
         <ThemeControl />
 
-        <button type="button" onClick={onPalette} className="cursor-pointer" title="Command palette">
+        <button type="button" onClick={onPalette} className="cursor-pointer" title={t('palette.open')}>
           <KbdChip>{IS_MAC ? '⌘K' : 'Ctrl K'}</KbdChip>
         </button>
       </div>

@@ -202,7 +202,9 @@ export async function initHub(): Promise<void> {
       const m = f.match(/^subs_(\d+)\.json$/)
       if (!m) continue
       const cache = readJson<SubsCache | null>(path.join(SUBS_DIR, f), null)
-      if (cache) hub.subs.set(Number(m[1]), cache)
+      // Normalize on load so every consumer (removeFromSubs, addToSubs,
+      // saveSubs, buildState) can rely on ids/states being present.
+      if (cache) hub.subs.set(Number(m[1]), { ...cache, ids: cache.ids ?? [], states: cache.states ?? {} })
     }
   }
   hub.pending = loadPending()
@@ -416,6 +418,10 @@ async function doScanAcfs(): Promise<void> {
         prevTs > 0 && !!e.manifest && !!prevItem?.manifest && e.manifest !== prevItem.manifest
       if (e.installedTs > prevTs || manifestAdvanced) {
         const meta = hub.mods.get(id)?.remote?.meta
+        const sizeDelta =
+          e.sizeOnDisk !== undefined && prevItem?.sizeOnDisk !== undefined
+            ? e.sizeOnDisk - prevItem.sizeOnDisk
+            : undefined
         feedEvents.push({
           modId: id,
           appId,
@@ -424,6 +430,7 @@ async function doScanAcfs(): Promise<void> {
           detectedAt: nowTs,
           title: meta?.title,
           previewUrl: meta?.previewUrl,
+          sizeDelta,
         })
       }
     }
@@ -592,6 +599,10 @@ export async function pollRemote(reason: string): Promise<void> {
           prevStatus === 'ok' &&
           newTs > rec.lastSeenRemoteTs
         ) {
+          const sizeDelta =
+            r.fileSize !== undefined && prevMeta?.fileSize !== undefined
+              ? r.fileSize - prevMeta.fileSize
+              : undefined
           newEvents.push({
             modId: id,
             appId: rec.appId,
@@ -600,6 +611,7 @@ export async function pollRemote(reason: string): Promise<void> {
             detectedAt: nowTs,
             title: r.title ?? prevMeta?.title,
             previewUrl: r.previewUrl ?? prevMeta?.previewUrl,
+            sizeDelta,
           })
         }
         if (newTs > 0) rec.lastSeenRemoteTs = newTs
@@ -767,6 +779,7 @@ export function buildState(): StatePayload {
       sizeOnDisk: rec.acf?.sizeOnDisk,
       fileSize: meta?.fileSize,
       subs: meta?.subscriptions,
+      creator: meta?.creator,
       branchRange: branchRangeOf(meta?.tags),
       source: rec.source,
       timeCreatedTs: meta?.timeCreated ?? null,

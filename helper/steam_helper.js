@@ -99,6 +99,11 @@ function browseItemJson(item) {
     subscriptions: stats.numSubscriptions != null ? stats.numSubscriptions.toString() : null,
     banned: item.banned,
     url: item.url,
+    // Required items (dependencies) so the client's RequiredItemsDialog can wire
+    // up; the UGC query result exposes children by publishedFileId.
+    children: (item.children || []).map(c =>
+      c && c.publishedFileId != null ? c.publishedFileId.toString() : String(c),
+    ),
   }
 }
 

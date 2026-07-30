@@ -78,6 +78,9 @@ function emit(job: ActionJob, stage: ActionStage, detail?: string): void {
   job.updatedAtTs = now()
   broadcastPoke('action', {
     actionId: job.actionId,
+    kind: job.kind,
+    appId: job.appId,
+    modId: job.modId,
     stage,
     detail: job.detail,
     queuePosition: job.queuePosition,
@@ -259,19 +262,24 @@ async function runModAction(job: ActionJob): Promise<void> {
 
   // Two-phase completion (must-fix 13): helper output is only 'result'; the
   // mod's state flips solely from the ACF diff, same as organic downloads.
+  // The ACF wait runs DETACHED so pump() advances to the next queued job
+  // immediately — the helper is already idle here (must-fix 3). The job stays
+  // done:false until confirm resolves, so trimJobs (which only evicts done
+  // jobs) never drops it and reconnect catch-up still sees the terminal stage.
   emit(job, 'result', describeResult(result))
-  const confirmed = await waitForAcfConfirm(modId)
-  if (confirmed) {
-    finish(job, true, 'acf_confirmed')
-  } else {
-    finish(
-      job,
-      true,
-      'result_ok_unconfirmed',
-      'Steam accepted the request but no ACF change was observed within 120s. ' +
-        'The download may be deferred until the game launches, or Steam may be busy.',
-    )
-  }
+  void waitForAcfConfirm(modId).then(confirmed => {
+    if (confirmed) {
+      finish(job, true, 'acf_confirmed')
+    } else {
+      finish(
+        job,
+        true,
+        'result_ok_unconfirmed',
+        'Steam accepted the request but no ACF change was observed within 120s. ' +
+          'The download may be deferred until the game launches, or Steam may be busy.',
+      )
+    }
+  })
 }
 
 async function runSync(job: ActionJob): Promise<void> {

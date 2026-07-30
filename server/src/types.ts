@@ -98,6 +98,8 @@ export interface FeedEvent {
   /** Snapshotted at creation so feed history survives removal. */
   title?: string
   previewUrl?: string
+  /** byte change vs the prior snapshot (updated: remote fileSize; downloaded: on-disk size) */
+  sizeDelta?: number
 }
 
 export interface LastPoll {
@@ -142,6 +144,8 @@ export interface ModSummary {
   sizeOnDisk?: number
   fileSize?: number
   subs?: number
+  /** publishedfiledetails creator steamId64 -> client `author` fallback */
+  creator?: string
   branchRange: BranchRange | null
   source: ModSource
   timeCreatedTs?: number | null

@@ -115,6 +115,7 @@ class HelperSession {
   readonly appId: number
   readonly startedAt = Date.now()
   closed = false
+  private closing = false
   helloItems: HelperSyncItem[] | null = null
 
   private child: ChildProcess
@@ -142,8 +143,15 @@ class HelperSession {
     })
     this.helloPromise.catch(() => undefined) // observed by acquireSession
 
+    // A write to a dying child's stdin emits an ASYNC 'error' on the stream; with
+    // no listener Node escalates it to an unhandled process-level 'error' and
+    // crashes the single-instance server. Swallow broken-pipe/EPIPE here (the
+    // request/close paths already resolve the pending op with ok:false).
+    this.child.stdin?.on('error', () => undefined)
+    this.child.stdout?.on('error', () => undefined)
     const rl = readline.createInterface({ input: this.child.stdout as NodeJS.ReadableStream })
     rl.on('line', line => this.onLine(line))
+    this.child.stderr?.on('error', () => undefined)
     this.child.stderr?.on('data', d => {
       this.stderrTail = (this.stderrTail + String(d)).slice(-400)
     })
@@ -158,7 +166,10 @@ class HelperSession {
   }
 
   get expired(): boolean {
-    return this.closed || Date.now() - this.startedAt > SESSION_HARD_CAP_MS - 5_000
+    // `closing` (set at the top of close()) makes acquireSession treat a session
+    // whose exit is in progress as expired, so a queued op awaits the close and
+    // spawns a fresh child instead of writing to the dying one.
+    return this.closed || this.closing || Date.now() - this.startedAt > SESSION_HARD_CAP_MS - 5_000
   }
 
   private onLine(line: string): void {
@@ -212,11 +223,18 @@ class HelperSession {
         void this.close() // a wedged op makes the child suspect
       }, timeoutMs)
       this.pending.set(reqId, { resolve, timer, onProgress })
-      const ok = this.child.stdin?.write(JSON.stringify({ reqId, ...payload }) + '\n')
-      if (!ok && this.child.stdin === null) {
+      try {
+        const ok = this.child.stdin?.write(JSON.stringify({ reqId, ...payload }) + '\n')
+        if (!ok && this.child.stdin === null) {
+          clearTimeout(timer)
+          this.pending.delete(reqId)
+          resolve({ ok: false, error: 'helper stdin unavailable' })
+        }
+      } catch {
+        // write-after-destroy on a dying child: resolve rather than throw
         clearTimeout(timer)
         this.pending.delete(reqId)
-        resolve({ ok: false, error: 'helper stdin unavailable' })
+        resolve({ ok: false, error: 'helper stdin write failed' })
       }
     })
   }
@@ -243,6 +261,7 @@ class HelperSession {
     if (this.closed) {
       return
     }
+    this.closing = true // mid-close: acquireSession must not reuse this session
     try {
       this.child.stdin?.write(JSON.stringify({ reqId: 0, op: 'exit' }) + '\n')
     } catch {

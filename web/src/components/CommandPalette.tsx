@@ -8,6 +8,7 @@ import { useHub, type PageName } from '../store'
 import { fuzzyScore } from '../util'
 import { GamePill } from './GamePill'
 import { KbdChip } from './KbdChip'
+import { useFocusTrap } from './useFocusTrap'
 
 interface PaletteItem {
   id: string
@@ -48,16 +49,16 @@ export function CommandPalette({
   const [cursor, setCursor] = useState(0)
   const inputRef = useRef<HTMLInputElement>(null)
   const listRef = useRef<HTMLDivElement>(null)
+  const dialogRef = useRef<HTMLDivElement>(null)
+  // Trap Tab within the palette and restore focus to the trigger on close
+  // (must-fix 5); the input is the initial focus target.
+  useFocusTrap(open, dialogRef, inputRef)
 
   useEffect(() => {
     if (open) {
       setQuery('')
       setCursor(0)
-      // focus after the entrance frame
-      const timer = setTimeout(() => inputRef.current?.focus(), 30)
-      return () => clearTimeout(timer)
     }
-    return undefined
   }, [open])
 
   const items = useMemo<PaletteItem[]>(() => {
@@ -193,6 +194,7 @@ export function CommandPalette({
         >
           <motion.div
             key="palette"
+            ref={dialogRef}
             initial={{ opacity: 0, scale: 0.98 }}
             animate={{ opacity: 1, scale: 1 }}
             exit={{ opacity: 0, scale: 0.98 }}

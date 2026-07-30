@@ -244,13 +244,10 @@ function mapBrowseItem(raw: Raw): BrowseItem {
   return {
     id: String(raw.id ?? ''),
     title: str(raw.title) ?? String(raw.id ?? ''),
-    author: str(raw.author),
-    authorAvatarUrl: str(raw.authorAvatarUrl),
     previewUrl: str(raw.previewUrl),
     timeCreated: num(raw.timeCreated),
     timeUpdated: num(raw.timeUpdated),
     subs,
-    sizeWorkshop: num(raw.sizeWorkshop) ?? num(raw.fileSize),
     score,
     voteCount,
     tags: Array.isArray(raw.tags) ? (raw.tags as unknown[]).map(x => String(x)) : undefined,

@@ -348,11 +348,6 @@ function BrowseRow({
             {item.banned ? <BannedTag /> : null}
           </span>
           <span className="flex min-w-0 items-center gap-[6px]">
-            {item.author ? (
-              <span className="shrink-0 truncate text-[12px] text-[var(--text-3)]">
-                {item.author}
-              </span>
-            ) : null}
             <TagChips tags={item.tags} />
           </span>
         </span>
@@ -433,11 +428,6 @@ function PosterTile({
               >
                 {item.title}
               </a>
-              {item.author ? (
-                <span className="truncate text-[11px] text-[rgba(233,238,242,0.64)]">
-                  {item.author}
-                </span>
-              ) : null}
             </span>
             <span
               className="voice-mono-sm shrink-0 text-[rgba(233,238,242,0.64)]"

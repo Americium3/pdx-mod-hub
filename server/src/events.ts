@@ -18,6 +18,8 @@ export interface NewFeedEvent {
   detectedAt: number
   title?: string
   previewUrl?: string
+  /** byte change vs the prior snapshot (updated: remote fileSize; downloaded: on-disk size) */
+  sizeDelta?: number
 }
 
 interface EventsFileV2 {

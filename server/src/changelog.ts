@@ -408,10 +408,17 @@ async function syncHead(modId: string, cache: CacheV2, remoteTs: number | undefi
     }
     page++
   }
+  // Cap-tripped walk that never overlapped the cached head leaves a gap between
+  // the fetched run's tail and the pre-existing older entries — merging them
+  // would make cache.entries non-contiguous, breaking syncOlder's page math
+  // (floor(entries.length/PAGE_SIZE)+1). Drop the stale older entries and keep
+  // only the contiguous fetched prefix; the cursor re-pulls the tail on demand.
+  const capGap = boundaryTs !== 0 && !overlapped && page >= walkCap
+  if (capGap) cache.entries = []
   mergeRun(cache, run)
   cache.fetchedAt = nowSec() // even an empty page is a successful sync
   if (sawEnd) cache.complete = true
-  else if (boundaryTs === 0 || (!overlapped && page >= walkCap)) {
+  else if (boundaryTs === 0 || capGap) {
     // cap-tripped walk may have left a gap below the fetched run; the cursor
     // treats the tail as incomplete and re-fetches older pages on demand
     cache.complete = false

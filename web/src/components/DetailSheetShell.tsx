@@ -1,8 +1,9 @@
 import { AnimatePresence, motion } from 'framer-motion'
 import { X } from 'lucide-react'
-import { useEffect, type ReactNode } from 'react'
+import { useEffect, useRef, type ReactNode } from 'react'
 import { MOVE, useReducedMotionSafe } from '../motion'
 import { useHub } from '../store'
+import { useFocusTrap } from './useFocusTrap'
 
 /**
  * DETAIL SHEET shell: right sheet, 560px, floats over any page with a real
@@ -22,6 +23,8 @@ export function DetailSheetShell({
 }): ReactNode {
   const { t } = useHub()
   const move = useReducedMotionSafe(MOVE)
+  const sheetRef = useRef<HTMLElement>(null)
+  useFocusTrap(open, sheetRef)
 
   useEffect(() => {
     if (!open) return undefined
@@ -48,12 +51,14 @@ export function DetailSheetShell({
         >
           <motion.aside
             key="sheet"
+            ref={sheetRef}
+            tabIndex={-1}
             initial={{ x: 560 }}
             animate={{ x: 0 }}
             exit={{ x: 560, transition: { duration: 0.16, ease: 'easeIn' } }}
             transition={move}
             style={{ boxShadow: 'var(--shadow-float)' }}
-            className="absolute top-0 right-0 flex h-full w-[560px] max-w-[94vw] flex-col border-l border-[var(--line-1)] bg-[var(--bg-1)]"
+            className="absolute top-0 right-0 flex h-full w-[560px] max-w-[94vw] flex-col border-l border-[var(--line-1)] bg-[var(--bg-1)] outline-none"
             role="dialog"
             aria-modal="true"
             onMouseDown={e => e.stopPropagation()}

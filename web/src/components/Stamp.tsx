@@ -1,6 +1,7 @@
 import { AnimatePresence, motion } from 'framer-motion'
 import type { ReactNode } from 'react'
 import type { MsgKey } from '../i18n'
+import { pair } from '../i18n'
 import { DUR, STAMP, useReducedMotionSafe } from '../motion'
 import { useHub } from '../store'
 import { clockTime } from '../util'
@@ -56,11 +57,15 @@ export function Stamp({
   punch?: boolean
   className?: string
 }): ReactNode {
-  const { t } = useHub()
+  const { lang } = useHub()
   const thunk = useReducedMotionSafe(STAMP)
   const color = COLOR[state]
   const needsTime = state === 'fetched' || state === 'orphaned'
-  const label = t(KEY[state], needsTime ? { t: clockTime(ts) } : undefined)
+  // Reserved-width label (both locales stacked): switching EN<->中文 causes zero
+  // layout shift — the .reserve grid sizes to the widest child (must-fix / nit).
+  const p = pair(KEY[state], needsTime ? { t: clockTime(ts) } : undefined)
+  const active = lang === 'zh' ? p.zh : p.en
+  const ghost = lang === 'zh' ? p.en : p.zh
 
   return (
     <AnimatePresence mode="popLayout" initial={punch}>
@@ -78,7 +83,12 @@ export function Stamp({
           className={`inline-block h-[6px] w-[6px] rounded-full ${state === 'awaiting' ? 'dot-breathe' : ''}`}
           style={{ background: color }}
         />
-        {label}
+        <span className="reserve">
+          <span className="reserve-ghost" aria-hidden="true">
+            {ghost}
+          </span>
+          <span>{active}</span>
+        </span>
       </motion.span>
     </AnimatePresence>
   )
