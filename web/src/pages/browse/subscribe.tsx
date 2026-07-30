@@ -2,6 +2,7 @@
 // the store's SSE-driven action map, the state-aware Subscribe control
 // (button -> SUBSCRIBED / INSTALLED chips), and the required-items dialog.
 import { motion } from 'framer-motion'
+import { Check } from 'lucide-react'
 import {
   useCallback,
   useEffect,
@@ -15,7 +16,6 @@ import { ReservedText } from '../../components/ReservedText'
 import { DUR } from '../../motion'
 import { useHub } from '../../store'
 import type { ActionStage, BrowseItem } from '../../types'
-import { LocalReserved } from './local'
 
 /** Stages that mean the account-side subscribe has gone through. */
 const OK_STAGES: readonly ActionStage[] = [
@@ -112,9 +112,9 @@ export function useSubscriptions(appId: number | null): SubscriptionsApi {
 /* ---------- Status chips ---------- */
 
 /**
- * "✓ SUBSCRIBED" / "INSTALLED" chips (cross-referenced server-side, plus this
- * session's optimistic settles). `onArt` renders night-side literals with a
- * dark backing so the chip stays legible over Steam art in both themes.
+ * SUBSCRIBED (check icon) / INSTALLED chips (cross-referenced server-side,
+ * plus this session's optimistic settles). `onArt` renders night-side literals
+ * with a dark backing so the chip stays legible over Steam art in both themes.
  */
 export function StatusChip({
   kind,
@@ -126,16 +126,17 @@ export function StatusChip({
   className?: string
 }): ReactNode {
   const { t } = useHub()
-  const label = kind === 'subscribed' ? `✓ ${t('browse.subscribed')}` : t('browse.installed')
+  const label = kind === 'subscribed' ? t('browse.subscribed') : t('browse.installed')
   const style: CSSProperties = onArt
     ? { borderColor: '#55c186', color: '#55c186', background: 'rgba(10, 12, 14, 0.72)' }
     : { borderColor: 'var(--state-fetched)', color: 'var(--state-fetched)' }
   return (
     <span
-      className={`inline-flex items-center rounded-chip border px-[6px] py-[2px] font-mono text-[10px] font-medium tracking-[0.08em] whitespace-nowrap uppercase ${className ?? ''}`}
+      className={`inline-flex items-center gap-[3px] rounded-chip border px-[6px] py-[2px] font-mono text-[10px] font-medium tracking-[0.08em] whitespace-nowrap uppercase ${className ?? ''}`}
       style={style}
       data-chip={kind}
     >
+      {kind === 'subscribed' ? <Check size={11} strokeWidth={2.5} aria-hidden="true" /> : null}
       {label}
     </span>
   )
@@ -246,7 +247,7 @@ export function RequiredItemsDialog({
         </div>
         <div className="flex justify-end gap-[8px] pt-[14px]">
           <Button variant="secondary" onClick={onCancel}>
-            <LocalReserved k="misc.cancel" center />
+            <ReservedText k="misc.cancel" center />
           </Button>
           <Button variant="primary" onClick={onConfirm}>
             <ReservedText k="browse.subscribeAll" center />

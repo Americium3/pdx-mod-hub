@@ -1,8 +1,9 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { DATA_DIR, loadSettings } from './config.js'
-import { getChangelog } from './changelog.js'
+import { prefetchChangelog } from './changelog.js'
 import { addEvents, currentSeq, initEvents, type NewFeedEvent } from './events.js'
+import { sanitizeDescription } from './sanitize.js'
 import { readJson, writeJson } from './store.js'
 import { broadcastPoke } from './sse.js'
 import { scanGames } from './steam/games.js'
@@ -467,13 +468,34 @@ async function doScanAcfs(): Promise<void> {
   const seeded = hub.acfSeeded
   hub.acfSeeded = true
   if (seeded && feedEvents.length > 0) {
+    // two-phase action confirmation (must-fix 13): fire before event dedupe so
+    // a force-download of an unchanged ts still confirms on manifest advance
+    acfAdvanceHook(feedEvents.map(e => ({ modId: e.modId, appId: e.appId, ts: e.ts })))
     const added = addEvents(feedEvents)
     if (added.length > 0) broadcastPoke('feed')
   }
 }
 
+// Stage-B wiring point: actions.ts registers a listener resolving two-phase
+// force-download confirmations when an item's timeupdated/manifest advances.
+export interface AcfAdvance {
+  modId: string
+  appId: number
+  ts: number
+}
+let acfAdvanceHook: (advances: AcfAdvance[]) => void = () => undefined
+export function setAcfAdvanceHook(fn: (advances: AcfAdvance[]) => void): void {
+  acfAdvanceHook = fn
+}
+
 /** Watcher entry point: an appworkshop ACF changed (created, rewritten, or deleted). */
-export async function onAcfChange(_appId: number): Promise<void> {
+export async function onAcfChange(appId: number): Promise<void> {
+  // Zero-mod-game landing path (must-fix 18): a brand-new appworkshop ACF for
+  // a game we have never scanned needs games[] re-resolved first, or the scan
+  // will not know the ACF path.
+  const known =
+    hub.acfByApp.has(appId) || hub.games.some(g => g.appId === appId && g.workshopAcf)
+  if (!known) resolveLibraries()
   await scanAcfs()
   broadcastPoke('state')
 }
@@ -503,7 +525,7 @@ function activeIds(): string[] {
   return [...out]
 }
 
-function metaFrom(r: RemoteFetchResult): RemoteMeta {
+export function metaFrom(r: RemoteFetchResult): RemoteMeta {
   return {
     title: r.title,
     description: r.description,
@@ -618,11 +640,10 @@ export async function pollRemote(reason: string): Promise<void> {
     broadcastPoke('state', { reason })
     if (added.length > 0) broadcastPoke('feed')
     if (hub.settings.changelogPrefetch) {
-      // Stage-B replaces this with the global changelog queue + prefetch cap.
+      // Low-priority head prefetch through the global changelog queue (the
+      // queue enforces its own prefetch cap and circuit breaker).
       const fresh = added.filter(e => e.type === 'updated').slice(0, PREFETCH_PER_POLL)
-      for (const ev of fresh) {
-        void getChangelog(ev.modId, 1, ev.ts).catch(() => undefined)
-      }
+      for (const ev of fresh) prefetchChangelog(ev.modId, ev.ts)
     }
   } finally {
     hub.polling = false
@@ -765,6 +786,19 @@ export function buildState(): StatePayload {
   }
 }
 
+/**
+ * BBCode description -> sanitized HTML, computed on demand and cached on the
+ * record (recomputed only when the raw description changes; must-fix 5).
+ */
+export function descriptionHtmlOf(rec: ModRecord): string {
+  const src = rec.remote?.meta?.description ?? ''
+  if (src === '') return ''
+  if (rec.descCache?.src !== src) {
+    rec.descCache = { src, html: sanitizeDescription(src) }
+  }
+  return rec.descCache.html
+}
+
 /** Full detail for GET /api/mods/:id (description/tags/stats stay off /api/state). */
 export function buildModDetail(id: string): Record<string, unknown> | null {
   const rec = hub.mods.get(id)
@@ -777,7 +811,8 @@ export function buildModDetail(id: string): Record<string, unknown> | null {
     source: rec.source,
     state: stateOf(rec, account, now()),
     title: meta?.title ?? `Workshop item ${id}`,
-    description: meta?.description ?? '',
+    // sanitized HTML (BBCode -> whitelist converter -> DOMPurify), never raw
+    description: descriptionHtmlOf(rec),
     previewUrl: meta?.previewUrl,
     tags: meta?.tags ?? [],
     creator: meta?.creator,

@@ -1,16 +1,27 @@
 'use strict'
-// Short-lived Steamworks helper. One process per invocation, one appid per process.
-// Initializing Steamworks marks the account "in-game" for that appid, so every
-// command does the minimum work and exits immediately.
+// Steamworks helper. Two modes:
 //
-// Usage: node steam_helper.js <cmd> <appId> [args...]
-//   sync <appId>                       -> list account workshop subscriptions + local state
-//   probe <hostAppId> <csvAppIds>      -> ownership/install check for other appids
-//   subscribe <appId> <modId>          -> subscribe + kick download
-//   unsubscribe <appId> <modId>
-//   download <appId> <modId>           -> force download/update (highPriority)
-//   force <appId> <modId>              -> unsub -> resub -> download (stale-cache fallback)
-//   browse <appId> <page> <sort> [q]   -> workshop UGC query page
+// One-shot (legacy CLI): one process per invocation, one appid per process.
+//   node steam_helper.js <cmd> <appId> [args...]
+//     sync <appId>                       -> list account workshop subscriptions + local state
+//     probe <hostAppId> <csvAppIds>      -> ownership/install check for other appids
+//     subscribe <appId> <modId>          -> subscribe + kick download
+//     unsubscribe <appId> <modId>
+//     download <appId> <modId>           -> force download/update (highPriority)
+//     force <appId> <modId>              -> unsub -> resub -> download (stale-cache fallback)
+//     browse <appId> <page> <sort> [q]   -> workshop UGC query page
+//
+// Session (stage B): one persistent child per appid, newline-JSON protocol.
+//   node steam_helper.js session <appId>
+//     stdout on start: {type:'hello', ok:true, appId, items:[...]} — the
+//       getSubscribedItems piggyback that freshens the account set for this
+//       app on EVERY session start (zero extra flashes).
+//     stdin:  {reqId, op: browse|sync|subscribe|unsubscribe|download|force|exit, ...}
+//     stdout: {reqId, type:'progress', stage} interim lines, then {reqId, ok, ...}
+//
+// Initializing Steamworks marks the account "in-game" for that appid, so
+// one-shot runs stay short and sessions are bounded by the server (60s idle /
+// 10min hard cap) plus a local self-destruct backstop.
 
 function out(obj) {
   process.stdout.write(
@@ -32,8 +43,11 @@ if (!cmd || !Number.isInteger(appId) || appId <= 0) {
   fail('usage: steam_helper <cmd> <appId> [args...]')
 }
 
-// Never linger: the in-game flash must stay short even if something wedges.
-setTimeout(() => fail('helper hard timeout', 3), 110000)
+const SESSION_MODE = cmd === 'session'
+
+// Never linger: one-shot flashes stay short even if something wedges; sessions
+// self-destruct just past the server's 10min hard cap.
+setTimeout(() => fail('helper hard timeout', 3), SESSION_MODE ? 660000 : 110000).unref()
 
 let sw
 try {
@@ -51,6 +65,7 @@ const SORTS = {
   subs: 12,
   updated: 19,
 }
+const SESSION_QUERY_TYPES = [1, 3, 11, 12, 19]
 
 function itemJson(ws, id) {
   const info = ws.installInfo(id)
@@ -63,6 +78,10 @@ function itemJson(ws, id) {
   }
 }
 
+function subscribedItems(ws) {
+  return ws.getSubscribedItems().map(id => itemJson(ws, id))
+}
+
 function browseItemJson(item) {
   if (!item) return null
   const stats = item.statistics || {}
@@ -71,6 +90,7 @@ function browseItemJson(item) {
     title: item.title,
     description: (item.description || '').slice(0, 400),
     previewUrl: item.previewUrl || null,
+    owner: item.owner && item.owner.steamId64 != null ? item.owner.steamId64.toString() : null,
     timeCreated: item.timeCreated,
     timeUpdated: item.timeUpdated,
     tags: item.tags || [],
@@ -97,20 +117,138 @@ async function waitDownloadSignal(ws, id, maxMs) {
   }
 }
 
-async function main() {
-  let client
-  try {
-    client = sw.init(appId)
-  } catch (e) {
-    fail('init failed: ' + ((e && e.message) || e))
-  }
-  const ws = (client && client.workshop) || sw.workshop
-  const apps = (client && client.apps) || sw.apps
+function parseModId(raw) {
+  const s = String(raw == null ? '' : raw)
+  if (!/^[0-9]+$/.test(s)) throw new Error('bad mod id: ' + s.slice(0, 40))
+  return BigInt(s)
+}
 
+async function runBrowse(ws, { page, queryType, trendDays, q }) {
+  const p = Math.max(1, Number(page) || 1)
+  const qt = SESSION_QUERY_TYPES.includes(Number(queryType)) ? Number(queryType) : SORTS.trend
+  const cfg = {
+    language: 'english',
+    includeLongDescription: false,
+  }
+  const text = String(q || '').trim()
+  if (text) cfg.searchText = text
+  if (qt === SORTS.trend) cfg.rankedByTrendDays = trendDays === 30 ? 30 : 7
+  const result = await ws.getAllItems(p, qt, 0, appId, appId, cfg)
+  return {
+    page: p,
+    total: result.totalResults,
+    items: (result.items || []).map(browseItemJson).filter(Boolean),
+  }
+}
+
+async function runAction(ws, op, modIdRaw, progress) {
+  const id = parseModId(modIdRaw)
+  switch (op) {
+    case 'subscribe': {
+      await ws.subscribe(id)
+      progress('subscribed')
+      await sleep(1000)
+      const started = ws.download(id, true)
+      progress('downloading')
+      const signal = await waitDownloadSignal(ws, id, 5000)
+      return { modId: id.toString(), started, ...signal }
+    }
+    case 'unsubscribe': {
+      await ws.unsubscribe(id)
+      return { modId: id.toString() }
+    }
+    case 'download': {
+      const started = ws.download(id, true)
+      progress('downloading')
+      const signal = await waitDownloadSignal(ws, id, 6000)
+      return { modId: id.toString(), started, ...signal }
+    }
+    case 'force': {
+      // RimSort-style paced fallback for the stale-client-cache case.
+      await ws.unsubscribe(id)
+      await sleep(1200)
+      await ws.subscribe(id)
+      progress('subscribed')
+      await sleep(1200)
+      const started = ws.download(id, true)
+      progress('downloading')
+      const signal = await waitDownloadSignal(ws, id, 6000)
+      return { modId: id.toString(), started, ...signal }
+    }
+    default:
+      throw new Error('unknown op: ' + op)
+  }
+}
+
+// ---------------------------------------------------------------- session mode
+
+async function sessionMain(ws) {
+  // Account piggyback on EVERY session start (must-fix 10).
+  out({ type: 'hello', ok: true, appId, items: subscribedItems(ws) })
+
+  const readline = require('node:readline')
+  const rl = readline.createInterface({ input: process.stdin, terminal: false })
+  let chain = Promise.resolve()
+
+  rl.on('line', line => {
+    const text = line.trim()
+    if (!text) return
+    let req
+    try {
+      req = JSON.parse(text)
+    } catch {
+      out({ ok: false, error: 'bad request json' })
+      return
+    }
+    const reqId = typeof req.reqId === 'string' || typeof req.reqId === 'number' ? req.reqId : null
+    const run = async () => {
+      try {
+        switch (req.op) {
+          case 'exit':
+            out({ reqId, ok: true, bye: true })
+            process.exit(0)
+            break
+          case 'ping':
+            out({ reqId, ok: true, appId })
+            break
+          case 'sync':
+            out({ reqId, ok: true, appId, items: subscribedItems(ws) })
+            break
+          case 'browse': {
+            const res = await runBrowse(ws, req)
+            out({ reqId, ok: true, appId, ...res })
+            break
+          }
+          case 'subscribe':
+          case 'unsubscribe':
+          case 'download':
+          case 'force': {
+            const res = await runAction(ws, req.op, req.modId, stage =>
+              out({ reqId, type: 'progress', stage }),
+            )
+            out({ reqId, ok: true, appId, ...res })
+            break
+          }
+          default:
+            out({ reqId, ok: false, error: 'unknown op: ' + String(req.op) })
+        }
+      } catch (e) {
+        out({ reqId, ok: false, error: String((e && e.message) || e) })
+      }
+    }
+    chain = chain.then(run, run)
+  })
+
+  rl.on('close', () => process.exit(0)) // server closed stdin: shut down
+  await new Promise(() => undefined) // stay alive until exit/stdin close
+}
+
+// ---------------------------------------------------------------- one-shot mode
+
+async function oneShotMain(ws, apps) {
   switch (cmd) {
     case 'sync': {
-      const ids = ws.getSubscribedItems()
-      out({ ok: true, appId, items: ids.map(id => itemJson(ws, id)) })
+      out({ ok: true, appId, items: subscribedItems(ws) })
       break
     }
     case 'probe': {
@@ -125,68 +263,45 @@ async function main() {
           installed: apps.isAppInstalled(target),
         }
       }
-      out({ ok: true, hostAppId: appId, owned })
+      // account piggyback for the host app on every launch (must-fix 10)
+      out({ ok: true, hostAppId: appId, owned, piggyback: subscribedItems(ws) })
       break
     }
-    case 'subscribe': {
-      const id = BigInt(argv[2])
-      await ws.subscribe(id)
-      await sleep(1000)
-      const started = ws.download(id, true)
-      const signal = await waitDownloadSignal(ws, id, 5000)
-      out({ ok: true, appId, modId: id.toString(), started, ...signal })
-      break
-    }
-    case 'unsubscribe': {
-      const id = BigInt(argv[2])
-      await ws.unsubscribe(id)
-      out({ ok: true, appId, modId: id.toString() })
-      break
-    }
-    case 'download': {
-      const id = BigInt(argv[2])
-      const started = ws.download(id, true)
-      const signal = await waitDownloadSignal(ws, id, 6000)
-      out({ ok: true, appId, modId: id.toString(), started, ...signal })
-      break
-    }
+    case 'subscribe':
+    case 'unsubscribe':
+    case 'download':
     case 'force': {
-      // RimSort-style paced fallback for the stale-client-cache case.
-      const id = BigInt(argv[2])
-      await ws.unsubscribe(id)
-      await sleep(1200)
-      await ws.subscribe(id)
-      await sleep(1200)
-      const started = ws.download(id, true)
-      const signal = await waitDownloadSignal(ws, id, 6000)
-      out({ ok: true, appId, modId: id.toString(), started, ...signal })
+      const res = await runAction(ws, cmd, argv[2], () => undefined)
+      out({ ok: true, appId, ...res, piggyback: subscribedItems(ws) })
       break
     }
     case 'browse': {
       const page = Math.max(1, Number(argv[2]) || 1)
       const sortKey = String(argv[3] || 'trend')
       const q = String(argv[4] || '').trim()
-      const queryType = q ? SORTS.text : (SORTS[sortKey] != null ? SORTS[sortKey] : SORTS.trend)
-      const cfg = {
-        language: 'english',
-        includeLongDescription: false,
-      }
-      if (q) cfg.searchText = q
-      if (queryType === SORTS.trend) cfg.rankedByTrendDays = 7
-      const result = await ws.getAllItems(page, queryType, 0, appId, appId, cfg)
-      out({
-        ok: true,
-        appId,
-        page,
-        total: result.totalResults,
-        items: (result.items || []).map(browseItemJson).filter(Boolean),
-      })
+      const queryType = q ? SORTS.text : SORTS[sortKey] != null ? SORTS[sortKey] : SORTS.trend
+      const res = await runBrowse(ws, { page, queryType, trendDays: 7, q })
+      out({ ok: true, appId, ...res })
       break
     }
     default:
       fail('unknown command: ' + cmd)
   }
   process.exit(0)
+}
+
+async function main() {
+  let client
+  try {
+    client = sw.init(appId)
+  } catch (e) {
+    fail('init failed: ' + ((e && e.message) || e))
+  }
+  const ws = (client && client.workshop) || sw.workshop
+  const apps = (client && client.apps) || sw.apps
+
+  if (SESSION_MODE) await sessionMain(ws)
+  else await oneShotMain(ws, apps)
 }
 
 main().catch(e => fail(e))

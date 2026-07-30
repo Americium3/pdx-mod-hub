@@ -6,6 +6,7 @@
 import { AnimatePresence, motion } from 'framer-motion'
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
 import { api } from '../../api'
+import { pair } from '../../i18n'
 import { Button } from '../../components/Button'
 import { GamePill, GameGlyph } from '../../components/GamePill'
 import {
@@ -25,12 +26,10 @@ import type { ActionProgress, GameInfo, Settings } from '../../types'
 import { absDateTime, formatBytes, gameShort, relTime, reservedEm } from '../../util'
 import {
   fetchImgCache,
-  localPair,
   openFolder,
   patchSettingsDetailed,
   probeOwned,
   SettingsValidationError,
-  useLocalT,
   type ImgCacheInfo,
   type ProbeOwnedEntry,
 } from './lib'
@@ -76,6 +75,51 @@ function Row({
       </div>
       <div className="flex shrink-0 items-center gap-[10px]">{children}</div>
     </div>
+  )
+}
+
+/** Green "Saved" flash, scoped per row to the field(s) actually saved. */
+function SavedFlash({ show }: { show: boolean }): ReactNode {
+  return (
+    <AnimatePresence>
+      {show ? (
+        <motion.span
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          transition={{ duration: 0.12 }}
+          className="voice-mono-sm text-[var(--state-fetched)]"
+        >
+          <ReservedText k="settings.saved" />
+        </motion.span>
+      ) : null}
+    </AnimatePresence>
+  )
+}
+
+/**
+ * Button label that swaps to "Working…" while busy, with width reserved
+ * across BOTH labels in BOTH locales (zero layout shift, DESIGN_SPEC §3).
+ */
+function BusyLabel({
+  busy,
+  idle,
+  active,
+}: {
+  busy: boolean
+  idle: { en: string; zh: string }
+  active: string
+}): ReactNode {
+  const working = pair('action.working')
+  return (
+    <span className="reserve reserve-center">
+      {[idle.en, idle.zh, working.en, working.zh].map((s, i) => (
+        <span key={i} className="reserve-ghost" aria-hidden="true">
+          {s}
+        </span>
+      ))}
+      <span>{active}</span>
+    </span>
   )
 }
 
@@ -146,7 +190,6 @@ const POLL_MAX = 3600
 export default function SettingsPage(): ReactNode {
   const { state, t, lang, refresh, toast, seq, sseConnected, helperActive, actions, runSync, themeMode } =
     useHub()
-  const lt = useLocalT()
 
   const settings: Settings | undefined = state?.settings
   const diag = state as (typeof state & DiagExtras) | null
@@ -155,6 +198,7 @@ export default function SettingsPage(): ReactNode {
   /* ----- PATCH plumbing: per-field 422 display + saved flash ----- */
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({})
   const [savedFlash, setSavedFlash] = useState(0)
+  const [savedFields, setSavedFields] = useState<string[]>([])
   const [showSaved, setShowSaved] = useState(false)
 
   useEffect(() => {
@@ -174,6 +218,7 @@ export default function SettingsPage(): ReactNode {
           return next
         })
         await refresh()
+        setSavedFields(Object.keys(patch))
         setSavedFlash(x => x + 1)
         return true
       } catch (e) {
@@ -263,13 +308,13 @@ export default function SettingsPage(): ReactNode {
   const onClearCache = useCallback(async (): Promise<void> => {
     try {
       await api.clearImageCache()
-      toast('success', lt('settings.cacheCleared'))
+      toast('success', t('settings.cacheCleared'))
     } catch (e) {
       toast('error', t('toast.actionFailed', { e: e instanceof Error ? e.message : String(e) }))
     } finally {
       void loadCache()
     }
-  }, [loadCache, lt, t, toast])
+  }, [loadCache, t, toast])
 
   /* ----- Sync actions (per-game + all, sequential progress over SSE) ----- */
   const syncActs = useMemo(
@@ -330,7 +375,7 @@ export default function SettingsPage(): ReactNode {
       .sort((a, b) => (a.game?.name ?? String(a.appId)).localeCompare(b.game?.name ?? String(b.appId)))
   }, [probeResult, state])
 
-  const probeBtn = localPair('settings.probeRun')
+  const probeBtn = pair('settings.probeRun')
   const lastPoll = state?.lastPoll
 
   return (
@@ -344,19 +389,7 @@ export default function SettingsPage(): ReactNode {
           hint={t('settings.pollIntervalHint')}
           error={fieldErrors.pollIntervalSec}
         >
-          <AnimatePresence>
-            {showSaved ? (
-              <motion.span
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                exit={{ opacity: 0 }}
-                transition={{ duration: 0.12 }}
-                className="voice-mono-sm text-[var(--state-fetched)]"
-              >
-                <ReservedText k="settings.saved" />
-              </motion.span>
-            ) : null}
-          </AnimatePresence>
+          <SavedFlash show={showSaved && savedFields.includes('pollIntervalSec')} />
           <Input
             type="number"
             min={POLL_MIN}
@@ -376,7 +409,11 @@ export default function SettingsPage(): ReactNode {
             }}
           />
           <Button variant="secondary" disabled={checking} onClick={() => void onCheckNow()}>
-            <ReservedText k={checking ? 'action.working' : 'action.checkNow'} center />
+            <BusyLabel
+              busy={checking}
+              idle={pair('action.checkNow')}
+              active={checking ? t('action.working') : t('action.checkNow')}
+            />
           </Button>
         </Row>
 
@@ -385,6 +422,7 @@ export default function SettingsPage(): ReactNode {
           hint={t('settings.prefetchHint')}
           error={fieldErrors.changelogPrefetch}
         >
+          <SavedFlash show={showSaved && savedFields.includes('changelogPrefetch')} />
           <Toggle
             checked={prefetchOn}
             disabled={!settings || prefetchPending !== null}
@@ -395,7 +433,7 @@ export default function SettingsPage(): ReactNode {
       </Section>
 
       {/* ============ INTERFACE ============ */}
-      <Section label={lt('settings.interface')}>
+      <Section label={t('settings.interface')}>
         <Row label={<ReservedText k="settings.language" />} error={fieldErrors.language}>
           <LangControl />
         </Row>
@@ -406,8 +444,8 @@ export default function SettingsPage(): ReactNode {
       </Section>
 
       {/* ============ STORAGE ============ */}
-      <Section label={lt('settings.storage')}>
-        <Row label={<ReservedText k="settings.dataFolder" />} hint={lt('settings.dataFolderHint')}>
+      <Section label={t('settings.storage')}>
+        <Row label={<ReservedText k="settings.dataFolder" />} hint={t('settings.dataFolderHint')}>
           <span
             className="voice-mono max-w-[240px] truncate text-[var(--text-2)]"
             title={dataFolder ?? undefined}
@@ -419,7 +457,7 @@ export default function SettingsPage(): ReactNode {
           </Button>
         </Row>
 
-        <Row label={<ReservedText k="settings.imageCache" />} hint={lt('settings.imageCacheHint')}>
+        <Row label={<ReservedText k="settings.imageCache" />} hint={t('settings.imageCacheHint')}>
           <span className="voice-mono text-[var(--text-2)]">
             {cache && cache.bytes !== null ? formatBytes(cache.bytes) : '—'}
           </span>
@@ -443,7 +481,7 @@ export default function SettingsPage(): ReactNode {
           </span>
         </Row>
 
-        <Row label={lt('settings.steamRoot')}>
+        <Row label={t('settings.steamRoot')}>
           <span
             className="voice-mono max-w-[300px] truncate text-[var(--text-2)]"
             title={diag?.steamRoot ?? undefined}
@@ -474,7 +512,7 @@ export default function SettingsPage(): ReactNode {
           )}
           {warnings.length > 0 ? (
             <div className="pt-[6px]">
-              <div className="voice-label pb-[2px]">{lt('settings.warnings')}</div>
+              <div className="voice-label pb-[2px]">{t('settings.warnings')}</div>
               {warnings.map((w, i) => (
                 <div key={i} className="voice-mono-sm py-[1px] text-[var(--state-error)]">
                   {w.short}: {w.text}
@@ -525,13 +563,13 @@ export default function SettingsPage(): ReactNode {
                   : { background: 'var(--state-uptodate)' }
               }
             />
-            {helperActive ? lt('settings.helperActive') : lt('settings.helperIdle')}
+            {helperActive ? t('settings.helperActive') : t('settings.helperIdle')}
           </span>
         </Row>
 
         {/* Per-game syncedAt table + Sync all */}
         <div className="hairline-t flex min-h-[44px] items-center justify-between gap-[16px] py-[8px]">
-          <div className="min-w-0 text-[12px] text-[var(--text-3)]">{lt('settings.syncAllHint')}</div>
+          <div className="min-w-0 text-[12px] text-[var(--text-3)]">{t('settings.syncAllHint')}</div>
           <div className="flex shrink-0 items-center gap-[10px]">
             {syncAllAct ? (
               <span className="voice-mono-sm text-[var(--accent-text)]">
@@ -551,8 +589,8 @@ export default function SettingsPage(): ReactNode {
 
         <GridTable columns="minmax(170px,1fr) 150px 130px" className="hairline-t">
           <GridHeader>
-            <GridHeaderCell className="!px-[0px]">{lt('settings.colGame')}</GridHeaderCell>
-            <GridHeaderCell numeric>{lt('settings.colSynced')}</GridHeaderCell>
+            <GridHeaderCell className="!px-[0px]">{t('settings.colGame')}</GridHeaderCell>
+            <GridHeaderCell numeric>{t('settings.colSynced')}</GridHeaderCell>
             <GridHeaderCell numeric>{}</GridHeaderCell>
           </GridHeader>
           {installedGames.map((g: GameInfo) => {
@@ -598,30 +636,26 @@ export default function SettingsPage(): ReactNode {
         </GridTable>
 
         {/* Probe owned-not-installed */}
-        <Row label={lt('settings.probeOwned')} hint={lt('settings.probeOwnedHint')} error={probeError ?? undefined}>
+        <Row label={t('settings.probeOwned')} hint={t('settings.probeOwnedHint')} error={probeError ?? undefined}>
           <Button
             variant="secondary"
             disabled={probing || !steamRunning}
             onClick={() => void onProbe()}
             className="justify-center"
           >
-            <span className="reserve reserve-center">
-              <span className="reserve-ghost" aria-hidden="true">
-                {probeBtn.en}
-              </span>
-              <span className="reserve-ghost" aria-hidden="true">
-                {probeBtn.zh}
-              </span>
-              <span>{probing ? t('action.working') : lt('settings.probeRun')}</span>
-            </span>
+            <BusyLabel
+              busy={probing}
+              idle={probeBtn}
+              active={probing ? t('action.working') : t('settings.probeRun')}
+            />
           </Button>
         </Row>
 
         {ownedNotInstalled !== null ? (
           <div className="hairline-t py-[10px]">
-            <div className="voice-label pb-[6px]">{lt('settings.ownedNotInstalled')}</div>
+            <div className="voice-label pb-[6px]">{t('settings.ownedNotInstalled')}</div>
             {ownedNotInstalled.length === 0 ? (
-              <div className="text-[12px] text-[var(--text-3)]">{lt('settings.probeNone')}</div>
+              <div className="text-[12px] text-[var(--text-3)]">{t('settings.probeNone')}</div>
             ) : (
               ownedNotInstalled.map(item => (
                 <div key={item.appId} className="flex h-[30px] items-center gap-[8px]">

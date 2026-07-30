@@ -101,6 +101,59 @@ if (cursor !== undefined) {
   console.log(`  ${okCursor ? 'PASS' : 'FAIL'} cursor page strictly older`)
 }
 await check('feed bad cursor', 400, '/api/feed?before_seq=abc', { headers: H })
+// stage-B surfaces (validation paths only — nothing here spawns the helper)
+await check('changelog bad id', 400, '/api/mods/abc/changelog', { headers: H })
+await check('changelog bad before_ts', 400, '/api/mods/123/changelog?before_ts=x', { headers: H })
+await check('browse bad appId', 400, '/api/browse/nope', { method: 'POST', headers: HJ, body: '{}' })
+await check(
+  'browse bad sort',
+  400,
+  '/api/browse/394360',
+  { method: 'POST', headers: HJ, body: JSON.stringify({ sort: 'newest' }) },
+)
+await check(
+  'browse relevance without q',
+  400,
+  '/api/browse/394360',
+  { method: 'POST', headers: HJ, body: JSON.stringify({ sort: 'relevance' }) },
+)
+await check(
+  'browse q with non-relevance sort',
+  400,
+  '/api/browse/394360',
+  { method: 'POST', headers: HJ, body: JSON.stringify({ sort: 'updated', q: 'x' }) },
+)
+await check(
+  'browse page out of range',
+  400,
+  '/api/browse/394360',
+  { method: 'POST', headers: HJ, body: JSON.stringify({ sort: 'updated', page: 99 }) },
+)
+await check(
+  'unknown action name 404',
+  404,
+  '/api/actions/launch',
+  { method: 'POST', headers: HJ, body: JSON.stringify({ appId: 1, modId: '1' }) },
+)
+await check(
+  'action bad body 400',
+  400,
+  '/api/actions/subscribe',
+  { method: 'POST', headers: HJ, body: JSON.stringify({ appId: 'x', modId: 'y' }) },
+)
+await check('unknown action id 404', 404, '/api/actions/no-such-id', { headers: H })
+await check('sync bad appId 400', 400, '/api/sync/abc', { method: 'POST', headers: HJ, body: '{}' })
+const cacheStats = (await check('imgcache stats', 200, '/api/imgcache', { headers: H })) as {
+  files?: number
+  bytes?: number
+  maxBytes?: number
+}
+console.log('  imgcache:', JSON.stringify(cacheStats))
+if (typeof cacheStats?.maxBytes !== 'number') failures++
+await check('img bad url 400', 400, '/api/img?u=notaurl')
+await check('img http rejected 403', 403, `/api/img?u=${encodeURIComponent('http://images.steamusercontent.com/x.jpg')}`)
+await check('img disallowed host 403', 403, `/api/img?u=${encodeURIComponent('https://example.com/x.jpg')}`)
+await check('img private host 403', 403, `/api/img?u=${encodeURIComponent('https://127.0.0.1/x.jpg')}`)
 // settings validation
 await check(
   'settings unknown key 422',

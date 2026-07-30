@@ -1,6 +1,6 @@
 // Dev smoke: one real poll (batch keyless GetPublishedFileDetails) + one real
 // changelog fetch, against the stage-A record model.
-import { getChangelog } from '../src/changelog.js'
+import { getChangelogCursor } from '../src/changelog.js'
 import { queryFeed } from '../src/events.js'
 import { buildState, hub, initHub, pollRemote } from '../src/hub.js'
 
@@ -47,8 +47,8 @@ const sampleId = updates[0]?.id ?? state.mods[0]?.id
 if (sampleId) {
   const rec = hub.mods.get(sampleId)
   console.log('sample mod:', sampleId, rec?.remote?.meta?.title, 'remoteTs:', rec?.remote?.remoteTs)
-  const cl = await getChangelog(sampleId, 1, rec?.remote?.remoteTs)
-  console.log('changelog entries:', cl.entries.length, 'hasMore:', cl.hasMore)
-  console.log('first entry:', cl.entries[0]?.date, cl.entries[0]?.ts)
+  const cl = await getChangelogCursor(sampleId, { limit: 20 }, rec?.remote?.remoteTs)
+  console.log('changelog entries:', cl.entries.length, 'hasMore:', cl.hasMore, 'status:', cl.status)
+  console.log('first entry:', cl.entries[0]?.date, cl.entries[0]?.ts, 'ord:', cl.entries[0]?.ord)
   console.log('first entry html head:', (cl.entries[0]?.html ?? '').slice(0, 200))
 }

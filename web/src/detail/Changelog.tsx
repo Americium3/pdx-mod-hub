@@ -33,7 +33,9 @@ export function ChangelogTab({ modId }: { modId: string }): ReactNode {
         if (!alive) return
         setEntries(page.entries)
         setHasMore(page.hasMore)
-        setUnavailable(page.status === 'unavailable')
+        // 'unavailable' = negative-cached error page; 'error' = transient
+        // fetch failure with nothing cached — both degrade the same way.
+        setUnavailable(page.status === 'unavailable' || page.status === 'error')
         setLoading(false)
       })
       .catch(() => {
@@ -58,7 +60,7 @@ export function ChangelogTab({ modId }: { modId: string }): ReactNode {
           return [...prev, ...page.entries.filter(e => !seen.has(`${e.ts}:${e.ord}`))]
         })
         setHasMore(page.hasMore)
-        setUnavailable(page.status === 'unavailable')
+        setUnavailable(page.status === 'unavailable' || page.status === 'error')
         setLoadingMore(false)
       })
       .catch(() => {

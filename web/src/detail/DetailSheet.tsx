@@ -32,7 +32,6 @@ import type { ActionProgress, ActionStage, ModDetail, ModState } from '../types'
 import { TERMINAL_STAGES } from '../types'
 import { absDate, absDateTime, formatBytes, formatCountExact } from '../util'
 import { ChangelogTab } from './Changelog'
-import { useLocalT } from './local'
 import {
   normalizeDetail,
   profileUrlOf,
@@ -73,7 +72,6 @@ export default function DetailSheet({
 
 function DetailContent({ modId }: { modId: string }): ReactNode {
   const { state, t, lang, actions, runAction, toast } = useHub()
-  const lt = useLocalT()
   const snap = useReducedMotionSafe(SNAP)
 
   const summary = state?.mods.find(m => m.id === modId)
@@ -209,11 +207,11 @@ function DetailContent({ modId }: { modId: string }): ReactNode {
       <div className="flex flex-col gap-[16px] px-[16px] pt-[14px] pb-[16px]">
         {/* ----- banners ----- */}
         {stateVal === 'banned' ? (
-          <ErrorBanner>{lt('detail.bannedBanner')}</ErrorBanner>
+          <ErrorBanner>{t('detail.bannedBanner')}</ErrorBanner>
         ) : stateVal === 'removed' ? (
-          <ErrorBanner>{lt('detail.removedBanner')}</ErrorBanner>
+          <ErrorBanner>{t('detail.removedBanner')}</ErrorBanner>
         ) : null}
-        {loadError ? <ErrorBanner>{lt('detail.loadFailed', { e: loadError })}</ErrorBanner> : null}
+        {loadError ? <ErrorBanner>{t('detail.loadFailed', { e: loadError })}</ErrorBanner> : null}
 
         {/* States with no hero stamp still get the plain dot + label. */}
         {stamp === null && stateVal !== undefined ? <StateDot state={stateVal} /> : null}
@@ -259,7 +257,7 @@ function DetailContent({ modId }: { modId: string }): ReactNode {
               )}
             </span>
           </StatRow>
-          <StatRow label={lt('detail.modId')}>{modId}</StatRow>
+          <StatRow label={t('detail.modId')}>{modId}</StatRow>
           {branchRange ? (
             <StatRow label={t('library.col.targets')}>
               <TargetsPill min={branchRange.min} max={branchRange.max} />
@@ -325,7 +323,7 @@ function DetailContent({ modId }: { modId: string }): ReactNode {
                 className="voice-label relative cursor-pointer pb-[6px]"
                 style={id === tab ? { color: 'var(--accent-text)' } : undefined}
               >
-                {id === 'description' ? lt('detail.tab.description') : t('updates.changelog')}
+                {id === 'description' ? t('detail.tab.description') : t('updates.changelog')}
                 {id === tab ? (
                   <motion.span
                     layoutId="pmh-detail-tab"
@@ -364,7 +362,7 @@ function DetailContent({ modId }: { modId: string }): ReactNode {
                   </div>
                 ) : (
                   <p className="pt-[10px] text-[13px] text-[var(--text-3)] italic">
-                    {lt('detail.noDescription')}
+                    {t('detail.noDescription')}
                   </p>
                 )
               ) : (

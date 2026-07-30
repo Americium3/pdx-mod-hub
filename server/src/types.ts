@@ -72,6 +72,8 @@ export interface ModRecord {
   remote: RemoteInfo | null
   /** Last remote time_updated this server has observed; event diffs run against this, never ACF. */
   lastSeenRemoteTs: number | null
+  /** Runtime-only memo of the sanitized description HTML (keyed by raw source). */
+  descCache?: { src: string; html: string }
 }
 
 /** Subset of ModRecord persisted to data/mods.json (ACF parts are re-derived on scan). */
@@ -186,13 +188,4 @@ export interface SubsCache {
   states: Record<string, number>
 }
 
-export interface ChangelogEntry {
-  ts: number
-  date: string
-  html: string
-}
-
-export interface ChangelogPage {
-  entries: ChangelogEntry[]
-  hasMore: boolean
-}
+// Changelog wire/cache types live in changelog.ts (stage B cursor model).

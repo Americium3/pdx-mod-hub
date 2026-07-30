@@ -86,6 +86,20 @@ const dict = {
   'detail.close': { en: 'Close', zh: '关闭' },
   'detail.title': { en: 'Mod detail', zh: '模组详情' },
 
+  // detail sheet content
+  'detail.tab.description': { en: 'Description', zh: '描述' },
+  'detail.removedBanner': {
+    en: 'This mod has been removed from the Workshop. Cached data is shown.',
+    zh: '该模组已从创意工坊移除，以下为缓存数据。',
+  },
+  'detail.bannedBanner': {
+    en: 'This mod has been banned by Steam and is no longer available.',
+    zh: '该模组已被 Steam 封禁，创意工坊不再提供。',
+  },
+  'detail.loadFailed': { en: 'Failed to load details: {e}', zh: '详情加载失败：{e}' },
+  'detail.noDescription': { en: 'No description provided.', zh: '暂无描述。' },
+  'detail.modId': { en: 'Workshop ID', zh: '工坊 ID' },
+
   // statuses (legacy keys, kept)
   'status.update-available': { en: 'Update ready', zh: '有更新' },
   'status.up-to-date': { en: 'Up to date', zh: '已最新' },
@@ -117,6 +131,10 @@ const dict = {
   'updates.forceAll': { en: 'Force download all', zh: '全部强制下载' },
   'updates.missionLog': { en: 'Mission log', zh: '任务日志' },
   'updates.entry.update': { en: 'Update: {t}', zh: '更新：{t}' },
+  'updates.expand': { en: 'Expand', zh: '展开' },
+  'updates.collapse': { en: 'Collapse', zh: '收起' },
+  'updates.retry': { en: 'Retry', zh: '重试' },
+  'updates.feedError': { en: 'Could not load the mission log.', zh: '无法加载任务日志。' },
 
   // library
   'library.title': { en: 'Library', zh: '模组库' },
@@ -154,6 +172,9 @@ const dict = {
   'library.source.workshop': { en: 'workshop', zh: '工坊' },
   'library.source.local': { en: 'local', zh: '本地' },
   'library.selected': { en: '{n} selected', zh: '已选 {n} 项' },
+  'library.openFolders': { en: 'Open folders', zh: '打开文件夹' },
+  'library.sort.label': { en: 'Sort', zh: '排序' },
+  'library.clearSelection': { en: 'Clear selection', zh: '清除所选' },
 
   // browse
   'browse.title': { en: 'Browse', zh: '浏览工坊' },
@@ -186,6 +207,11 @@ const dict = {
   'browse.notEnoughRatings': { en: 'Not enough ratings', zh: '评分不足' },
   'browse.viewRows': { en: 'Rows', zh: '列表' },
   'browse.viewGrid': { en: 'Posters', zh: '海报' },
+  'browse.sort.relevance': { en: 'Relevance', zh: '相关性' },
+  'browse.sort.alltime': { en: 'All time', zh: '全部时间' },
+  'browse.noticeDismiss': { en: 'Got it', zh: '知道了' },
+  'browse.loadFailed': { en: 'Could not load Workshop results.', zh: '无法加载创意工坊结果。' },
+  'browse.openLibrary': { en: 'Open Library', zh: '打开模组库' },
 
   // actions
   'action.subscribe': { en: 'Subscribe', zh: '订阅' },
@@ -204,6 +230,7 @@ const dict = {
   'action.done': { en: 'Done', zh: '完成' },
   'action.failed': { en: 'Failed', zh: '失败' },
   'action.more': { en: 'More actions', zh: '更多操作' },
+  'action.retry': { en: 'Retry', zh: '重试' },
   'action.queuePosition': { en: 'Queued #{n}', zh: '排队第 {n} 位' },
 
   // action stages (SSE)
@@ -268,6 +295,38 @@ const dict = {
   'settings.save': { en: 'Save', zh: '保存' },
   'settings.saved': { en: 'Saved', zh: '已保存' },
   'settings.syncedAt': { en: 'Synced {t}', zh: '同步于 {t}' },
+  'settings.interface': { en: 'Interface', zh: '界面' },
+  'settings.storage': { en: 'Storage', zh: '存储' },
+  'settings.steamRoot': { en: 'Steam root', zh: 'Steam 根目录' },
+  'settings.helperActive': { en: 'active', zh: '工作中' },
+  'settings.helperIdle': { en: 'idle', zh: '空闲' },
+  'settings.colGame': { en: 'Game', zh: '游戏' },
+  'settings.colSynced': { en: 'Last sync', zh: '上次同步' },
+  'settings.syncAllHint': {
+    en: 'Games sync sequentially through one helper queue (brief in-game flash each).',
+    zh: '各游戏经单一助手队列依次同步（每个会短暂显示游戏中）。',
+  },
+  'settings.probeOwned': { en: 'Probe owned games', zh: '探测已拥有的游戏' },
+  'settings.probeRun': { en: 'Probe', zh: '探测' },
+  'settings.probeOwnedHint': {
+    en: 'List Paradox games you own but have not installed (starts the Steam helper).',
+    zh: '列出已拥有但未安装的P社游戏（将启动 Steam 助手）。',
+  },
+  'settings.ownedNotInstalled': { en: 'Owned, not installed', zh: '已拥有，未安装' },
+  'settings.probeNone': {
+    en: 'Every owned Paradox game is installed.',
+    zh: '已拥有的P社游戏均已安装。',
+  },
+  'settings.dataFolderHint': {
+    en: 'Mod state, events and caches live here. Changing it ships in a later version.',
+    zh: '模组状态、事件与缓存存放于此。更改目录将在后续版本提供。',
+  },
+  'settings.imageCacheHint': {
+    en: 'Proxied Steam art cached on disk.',
+    zh: '缓存在本地磁盘的 Steam 图片。',
+  },
+  'settings.cacheCleared': { en: 'Image cache cleared', zh: '图片缓存已清空' },
+  'settings.warnings': { en: 'Warnings', zh: '警告' },
 
   // theme
   'theme.auto': { en: 'Auto', zh: '跟随系统' },
@@ -275,6 +334,7 @@ const dict = {
   'theme.light': { en: 'Light', zh: '浅色' },
 
   // misc
+  'misc.cancel': { en: 'Cancel', zh: '取消' },
   'misc.never': { en: 'never', zh: '从未' },
   'misc.justNow': { en: 'just now', zh: '刚刚' },
   'misc.today': { en: 'Today', zh: '今天' },

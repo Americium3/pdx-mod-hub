@@ -41,7 +41,7 @@ import { ImageFrame } from '../../components/ImageFrame'
 import { InlineConfirm } from '../../components/InlineConfirm'
 import { Input } from '../../components/Input'
 import { KbdChip } from '../../components/KbdChip'
-import { ReservedPair, ReservedText } from '../../components/ReservedText'
+import { ReservedText } from '../../components/ReservedText'
 import { Skeleton, SkeletonRows } from '../../components/Skeleton'
 import { StateDot } from '../../components/StateDot'
 import type { MsgKey } from '../../i18n'
@@ -102,15 +102,6 @@ const CHIP_DEFS: readonly ChipDef[] = [
   { key: 'notInstalled', label: 'library.chip.notInstalled', states: ['not-installed'] },
   { key: 'removed', label: 'library.chip.removed', states: ['removed', 'banned', 'error'] },
 ]
-
-/* Temporary bilingual fallbacks for keys missing from the shared i18n dict
-   (listed in missingI18nKeys for the integrator to centralize). */
-const LOCAL_MSG = {
-  'library.openFolders': { en: 'Open folders', zh: '打开文件夹' },
-  'library.sort.label': { en: 'Sort', zh: '排序' },
-  'library.clearSelection': { en: 'Clear selection', zh: '清除所选' },
-} as const
-type LocalKey = keyof typeof LOCAL_MSG
 
 /* ------------------------------------------------------------------ layout */
 
@@ -413,8 +404,6 @@ export default function LibraryPage(): ReactNode {
   const anchorRef = useRef<string | null>(null)
   const searchRef = useRef<HTMLInputElement | null>(null)
 
-  const lt = useCallback((key: LocalKey): string => LOCAL_MSG[key][lang], [lang])
-
   const steamRunning = state?.steamRunning ?? false
   const mods = useMemo(() => (state?.mods ?? []) as LibraryMod[], [state?.mods])
   const games = useMemo(() => state?.games ?? [], [state?.games])
@@ -693,7 +682,7 @@ export default function LibraryPage(): ReactNode {
             value={sortKey}
             onChange={e => setSortKey(e.currentTarget.value as SortKey)}
             className={SELECT_CLASS}
-            aria-label={lt('library.sort.label')}
+            aria-label={t('library.sort.label')}
           >
             {SORT_KEYS.map(k => (
               <option key={k} value={k}>
@@ -867,21 +856,17 @@ export default function LibraryPage(): ReactNode {
               onConfirm={() => bulkAction('unsubscribe')}
               disabled={!steamRunning}
             />
-            <Button variant="ghost" onClick={bulkOpenFolders} title={lt('library.openFolders')}>
+            <Button variant="ghost" onClick={bulkOpenFolders} title={t('library.openFolders')}>
               <FolderOpen size={16} strokeWidth={1.75} />
-              <ReservedPair
-                a={LOCAL_MSG['library.openFolders'].en}
-                b={LOCAL_MSG['library.openFolders'].zh}
-                active={lt('library.openFolders')}
-              />
+              <ReservedText k="library.openFolders" center />
             </Button>
             <span className="flex-1" />
             <KbdChip>Esc</KbdChip>
             <Button
               variant="icon"
               onClick={clearSelection}
-              title={lt('library.clearSelection')}
-              aria-label={lt('library.clearSelection')}
+              title={t('library.clearSelection')}
+              aria-label={t('library.clearSelection')}
             >
               <X size={16} strokeWidth={1.75} />
             </Button>

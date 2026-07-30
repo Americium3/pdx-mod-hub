@@ -1,62 +1,9 @@
-// Settings-page local helpers: bilingual fallback strings for i18n keys that do
-// not exist in the shared dict yet (listed in missingI18nKeys for the
-// integrator), plus thin fetchers for endpoints the shared api client does not
-// cover (per-field 422 capture, GET /api/imgcache, POST /api/probe-owned,
-// POST /api/open-folder). All requests carry the X-PMH CSRF header.
-import { useCallback } from 'react'
+// Settings-page local helpers: thin fetchers for endpoints the shared api
+// client does not cover with the shapes this page needs (per-field 422
+// capture, GET /api/imgcache readout, POST /api/probe-owned, POST
+// /api/open-folder). All requests carry the X-PMH CSRF header.
 import { ApiError } from '../../api'
-import type { Lang } from '../../i18n'
-import { useHub } from '../../store'
 import type { Settings } from '../../types'
-
-/* ---------- Local bilingual fallbacks (temporary, integrator centralizes) ---------- */
-
-const LOCAL_DICT = {
-  'settings.interface': { en: 'Interface', zh: '界面' },
-  'settings.storage': { en: 'Storage', zh: '存储' },
-  'settings.steamRoot': { en: 'Steam root', zh: 'Steam 根目录' },
-  'settings.helperActive': { en: 'active', zh: '工作中' },
-  'settings.helperIdle': { en: 'idle', zh: '空闲' },
-  'settings.colGame': { en: 'Game', zh: '游戏' },
-  'settings.colSynced': { en: 'Last sync', zh: '上次同步' },
-  'settings.syncAllHint': {
-    en: 'Games sync sequentially through one helper queue (brief in-game flash each).',
-    zh: '各游戏经单一助手队列依次同步（每个会短暂显示游戏中）。',
-  },
-  'settings.probeOwned': { en: 'Probe owned games', zh: '探测已拥有的游戏' },
-  'settings.probeRun': { en: 'Probe', zh: '探测' },
-  'settings.probeOwnedHint': {
-    en: 'List Paradox games you own but have not installed (starts the Steam helper).',
-    zh: '列出已拥有但未安装的P社游戏（将启动 Steam 助手）。',
-  },
-  'settings.ownedNotInstalled': { en: 'Owned, not installed', zh: '已拥有，未安装' },
-  'settings.probeNone': {
-    en: 'Every owned Paradox game is installed.',
-    zh: '已拥有的P社游戏均已安装。',
-  },
-  'settings.dataFolderHint': {
-    en: 'Mod state, events and caches live here. Changing it ships in a later version.',
-    zh: '模组状态、事件与缓存存放于此。更改目录将在后续版本提供。',
-  },
-  'settings.imageCacheHint': {
-    en: 'Proxied Steam art cached on disk.',
-    zh: '缓存在本地磁盘的 Steam 图片。',
-  },
-  'settings.cacheCleared': { en: 'Image cache cleared', zh: '图片缓存已清空' },
-  'settings.warnings': { en: 'Warnings', zh: '警告' },
-} as const
-
-export type LocalKey = keyof typeof LOCAL_DICT
-
-export function localPair(key: LocalKey): { en: string; zh: string } {
-  return LOCAL_DICT[key]
-}
-
-/** t-like helper over the page-local fallback dict (same Lang as the store). */
-export function useLocalT(): (key: LocalKey) => string {
-  const { lang } = useHub()
-  return useCallback((key: LocalKey) => LOCAL_DICT[key][lang as Lang], [lang])
-}
 
 /* ---------- Local fetchers ---------- */
 

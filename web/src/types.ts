@@ -92,6 +92,11 @@ export interface Settings {
   port?: number
 }
 
+export interface LibraryInfo {
+  path: string
+  reachable: boolean
+}
+
 /** GET /api/state — slim summaries only. */
 export interface HubState {
   mods: ModSummary[]
@@ -102,6 +107,10 @@ export interface HubState {
   seq: number
   etag?: string
   settings?: Settings
+  /* diagnostics (Settings page) */
+  steamRoot?: string | null
+  libraries?: LibraryInfo[]
+  polling?: boolean
 }
 
 /* ---------- Feed ---------- */
@@ -134,6 +143,8 @@ export interface ChangelogEntry {
   ts: number
   ord: number
   html: string
+  /** pre-rendered date string from the fetch pass (informational) */
+  date?: string
   fetchedAt?: number
 }
 
@@ -141,14 +152,16 @@ export interface ChangelogEntry {
 export interface ChangelogPage {
   entries: ChangelogEntry[]
   hasMore: boolean
-  syncedThroughTs?: number
-  /** 'unavailable' when steamcommunity is blocked/slow — degrade, never stall */
-  status?: 'ok' | 'unavailable'
+  syncedThroughTs?: number | null
+  /** 'unavailable' = negative-cached error page; 'error' = transient fetch
+   *  failure with nothing cached — both degrade, never stall */
+  status?: 'ok' | 'unavailable' | 'error'
+  checkedAt?: number
 }
 
 /* ---------- Actions (202 + actionId + SSE stages) ---------- */
 
-export type ActionKind = 'subscribe' | 'unsubscribe' | 'download' | 'sync' | 'syncAll'
+export type ActionKind = 'subscribe' | 'unsubscribe' | 'download' | 'force' | 'sync' | 'syncAll'
 
 export type ActionStage =
   | 'queued'

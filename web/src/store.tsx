@@ -95,8 +95,14 @@ interface HubContextValue {
 
   // actions in flight
   actions: Record<string, ActionProgress>
+  /**
+   * Submit action job(s). The server accepts ONE modId per job, so a
+   * `modIds` payload fans out into sequential posts (one 202 job each);
+   * returns the first accepted actionId, or null if the first post was
+   * refused (409 steam_not_running / transport error — already toasted).
+   */
   runAction: (
-    kind: Extract<ActionKind, 'subscribe' | 'unsubscribe' | 'download'>,
+    kind: Extract<ActionKind, 'subscribe' | 'unsubscribe' | 'download' | 'force'>,
     payload: { appId: number; modId?: string; modIds?: string[] },
   ) => Promise<string | null>
   runSync: (appId?: number) => Promise<string | null>
@@ -304,37 +310,48 @@ export function HubProvider({ children }: { children: ReactNode }): ReactNode {
   /* ----- actions ----- */
   const runAction = useCallback(
     async (
-      kind: Extract<ActionKind, 'subscribe' | 'unsubscribe' | 'download'>,
+      kind: Extract<ActionKind, 'subscribe' | 'unsubscribe' | 'download' | 'force'>,
       payload: { appId: number; modId?: string; modIds?: string[] },
     ): Promise<string | null> => {
-      try {
-        const { actionId } = await api.action(kind, payload)
-        setActions(prev => ({
-          ...prev,
-          [actionId]: {
-            actionId,
-            kind,
-            stage: 'queued',
-            appId: payload.appId,
-            modId: payload.modId,
-            modIds: payload.modIds,
-            startedAt: Date.now(),
-          },
-        }))
-        return actionId
-      } catch (e) {
-        if (e instanceof ApiError && e.code === 'steam_not_running') {
-          toast('error', translate(langRef.current, 'toast.steamNotRunning'))
-        } else {
-          toast(
-            'error',
-            translate(langRef.current, 'toast.actionFailed', {
-              e: e instanceof Error ? e.message : String(e),
-            }),
-          )
+      const modIds =
+        payload.modIds && payload.modIds.length > 0
+          ? payload.modIds
+          : payload.modId !== undefined
+            ? [payload.modId]
+            : []
+      let first: string | null = null
+      for (const modId of modIds) {
+        try {
+          // One job per mod — the server queue serializes them (must-fix 3).
+          const { actionId } = await api.action(kind, { appId: payload.appId, modId })
+          setActions(prev => ({
+            ...prev,
+            [actionId]: {
+              actionId,
+              kind,
+              stage: 'queued',
+              appId: payload.appId,
+              modId,
+              startedAt: Date.now(),
+            },
+          }))
+          if (first === null) first = actionId
+        } catch (e) {
+          if (e instanceof ApiError && e.code === 'steam_not_running') {
+            toast('error', translate(langRef.current, 'toast.steamNotRunning'))
+          } else {
+            toast(
+              'error',
+              translate(langRef.current, 'toast.actionFailed', {
+                e: e instanceof Error ? e.message : String(e),
+              }),
+            )
+          }
+          // Refusal applies to the whole batch — stop fanning out.
+          return first
         }
-        return null
       }
+      return first
     },
     [toast],
   )

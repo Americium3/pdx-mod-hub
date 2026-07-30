@@ -31,11 +31,6 @@ export function broadcastPoke(type: PokeType, extra?: Record<string, unknown>): 
   send(`id: ${seq}\ndata: ${JSON.stringify({ type, seq, ...extra })}\n\n`)
 }
 
-// Legacy named-event channel; still used by the helper module until stage B lands.
-export function broadcast(event: string, data: unknown): void {
-  send(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`)
-}
-
 function send(payload: string): void {
   for (const res of clients) {
     try {

@@ -9,39 +9,63 @@ import {
   clampPollInterval,
   saveSettings,
 } from './config.js'
-import { ChangelogNotFoundError, getChangelog } from './changelog.js'
-import { currentSeq, queryFeed } from './events.js'
-import { runHelper } from './helper.js'
 import {
-  addPending,
-  addToSubs,
+  enqueueAction,
+  getJob,
+  SteamNotRunningError,
+  type ActionKind,
+} from './actions.js'
+import { getChangelogCursor } from './changelog.js'
+import { currentSeq, queryFeed } from './events.js'
+import { HelperInitError, runHelper, runWithSession } from './helper.js'
+import {
+  accountOf,
   buildModDetail,
   buildState,
+  descriptionHtmlOf,
   hub,
   pollRemote,
-  removeFromSubs,
   requestWatcherRefresh,
   reschedulePoll,
   resolveLibraries,
-  saveSubs,
   scanAcfs,
   trackHelper,
 } from './hub.js'
-import { serveImage } from './images.js'
-import { addClient, broadcast, broadcastPoke } from './sse.js'
-import type { Settings, SubsCache } from './types.js'
+import { clearImageCache, imageCacheStats, serveImage } from './images.js'
+import { addClient, broadcastPoke } from './sse.js'
+import { isSteamRunning } from './steam/locate.js'
+import type { Settings } from './types.js'
 
 const CSP = [
   "default-src 'self'",
   "script-src 'self'",
-  "style-src 'self' 'unsafe-inline'", // Tailwind injects inline styles
+  // Tailwind injects inline styles; the SPA loads the IBM Plex / Noto Sans SC
+  // tri-voice stylesheet from Google Fonts (web/index.html).
+  "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
   "img-src 'self' data:",
   "connect-src 'self'",
-  "font-src 'self'",
+  "font-src 'self' https://fonts.gstatic.com",
   "object-src 'none'",
   "base-uri 'none'",
   "frame-ancestors 'none'",
 ].join('; ')
+
+// Browse sort enum (must-fix 8): server-validated q/sort combos; Steam's
+// UGCQueryType constants are mapped strictly server-side.
+const BROWSE_SORTS: Record<
+  string,
+  { queryType: number; trendDays?: number; requiresQ?: boolean }
+> = {
+  relevance: { queryType: 11, requiresQ: true }, // RankedByTextSearch
+  updated: { queryType: 19 }, // RankedByLastUpdatedDate
+  published: { queryType: 1 }, // RankedByPublicationDate
+  trend7d: { queryType: 3, trendDays: 7 }, // RankedByTrend
+  trend30d: { queryType: 3, trendDays: 30 },
+  popular: { queryType: 12 }, // RankedByTotalUniqueSubscriptions
+}
+const BROWSE_PER_PAGE = 50
+const BROWSE_RESULT_CAP = 1_000 // Steam UGC queries cap out at 1000 results
+const BROWSE_MAX_PAGE = BROWSE_RESULT_CAP / BROWSE_PER_PAGE
 
 export function createApp(port: number): express.Express {
   const app = express()
@@ -138,37 +162,57 @@ export function createApp(port: number): express.Express {
     addClient(res)
   })
 
+  // ------------------------------------------------------------ image proxy
+
   app.get('/api/img', (req, res) => {
-    // Stage-B replaces this with the DNS-pinned SSRF-hardened proxy.
     void serveImage(req, res)
   })
 
-  app.get('/api/mods/:id/description', (req, res) => {
-    const rec = hub.mods.get(String(req.params.id))
-    res.json({ description: rec?.remote?.meta?.description ?? '' })
+  app.get('/api/imgcache', (_req, res) => {
+    res.json(imageCacheStats())
   })
 
+  app.post('/api/imgcache', (_req, res) => {
+    const removed = clearImageCache()
+    res.json({ ok: true, removed, ...imageCacheStats() })
+  })
+
+  // ------------------------------------------------------------ mod content
+
+  // Legacy alias for the pre-SPA client; serves the SANITIZED description.
+  app.get('/api/mods/:id/description', (req, res) => {
+    const rec = hub.mods.get(String(req.params.id))
+    res.json({ description: rec ? descriptionHtmlOf(rec) : '' })
+  })
+
+  // Cursor changelog API (must-fix 2): ?before_ts=&limit=20 over the locally
+  // keyed (modId, ts, ord) entry list. Steam's ?p=N never reaches this surface.
   app.get('/api/mods/:id/changelog', async (req, res) => {
-    // Stage-A keeps the legacy ?page= surface; stage B replaces it with the
-    // cursor (?before_ts&limit) API over locally-keyed entries.
     const id = String(req.params.id)
     if (!/^\d+$/.test(id)) {
       res.status(400).json({ error: 'bad id' })
       return
     }
-    const page = Math.max(1, Number(req.query.page) || 1)
-    const remoteTs = hub.mods.get(id)?.remote?.remoteTs
-    try {
-      const data = await getChangelog(id, page, remoteTs)
-      res.json(data)
-    } catch (e) {
-      if (e instanceof ChangelogNotFoundError) {
-        res.status(404).json({ error: 'changelog unavailable' })
+    let beforeTs: number | undefined
+    if (req.query.before_ts !== undefined) {
+      const n = Number(req.query.before_ts)
+      if (!Number.isInteger(n) || n <= 0) {
+        res.status(400).json({ error: 'bad before_ts' })
         return
       }
+      beforeTs = n
+    }
+    const rawLimit = req.query.limit === undefined ? 20 : Number(req.query.limit)
+    const limit = Number.isInteger(rawLimit) ? Math.min(50, Math.max(1, rawLimit)) : 20
+    const remoteTs = hub.mods.get(id)?.remote?.remoteTs
+    try {
+      res.json(await getChangelogCursor(id, { beforeTs, limit }, remoteTs))
+    } catch (e) {
       res.status(502).json({ error: String(e instanceof Error ? e.message : e) })
     }
   })
+
+  // ------------------------------------------------------------ maintenance
 
   app.post('/api/poll', async (_req, res) => {
     await pollRemote('manual')
@@ -180,30 +224,6 @@ export function createApp(port: number): express.Express {
     await scanAcfs()
     broadcastPoke('state')
     res.json({ ok: true })
-  })
-
-  app.post('/api/sync/:appId', async (req, res) => {
-    const appId = Number(req.params.appId)
-    if (!Number.isInteger(appId) || appId <= 0) {
-      res.status(400).json({ error: 'bad appId' })
-      return
-    }
-    const result = await trackHelper(() => runHelper('sync', appId))
-    if (!result.ok) {
-      res.status(502).json(result)
-      return
-    }
-    const items = (result.items ?? []) as Array<{ id: string; state: number }>
-    const cache: SubsCache = {
-      appId,
-      syncedAt: Math.floor(Date.now() / 1000),
-      ids: items.map(i => i.id),
-      states: Object.fromEntries(items.map(i => [i.id, i.state])),
-    }
-    saveSubs(cache)
-    broadcastPoke('state')
-    void pollRemote('sync')
-    res.json({ ok: true, count: cache.ids.length })
   })
 
   app.post('/api/probe-owned', async (_req, res) => {
@@ -227,49 +247,132 @@ export function createApp(port: number): express.Express {
     res.json({ ok: true, owned })
   })
 
-  app.post('/api/actions/:action', async (req, res) => {
-    // Stage-A note: still a synchronous request/response; stage B converts this
-    // to the async job queue (202 + actionId + SSE stages + GET /api/actions/:id).
+  // ------------------------------------------------------------ action jobs
+
+  const submitJob = (res: Response, kind: ActionKind, appId: number, modId?: string): void => {
+    try {
+      const job = enqueueAction(kind, appId, modId)
+      res.status(202).json({ actionId: job.actionId, stage: job.stage, queuePosition: job.queuePosition })
+    } catch (e) {
+      if (e instanceof SteamNotRunningError) {
+        res.status(409).json({ error: 'steam_not_running' })
+        return
+      }
+      res.status(500).json({ error: String(e instanceof Error ? e.message : e) })
+    }
+  }
+
+  app.post('/api/actions/:action', (req, res) => {
     const action = String(req.params.action)
-    const appId = Number((req.body as Record<string, unknown> | undefined)?.appId)
-    const modId = String((req.body as Record<string, unknown> | undefined)?.modId ?? '')
     if (!['subscribe', 'unsubscribe', 'download', 'force'].includes(action)) {
       res.status(404).json({ error: 'unknown action' })
       return
     }
+    const body = (req.body ?? {}) as Record<string, unknown>
+    const appId = Number(body.appId)
+    const modId = String(body.modId ?? '')
     if (!Number.isInteger(appId) || appId <= 0 || !/^\d+$/.test(modId)) {
       res.status(400).json({ error: 'bad appId/modId' })
       return
     }
-    const result = await trackHelper(() => runHelper(action, appId, [modId]))
-    if (result.ok) {
-      if (action === 'subscribe' || action === 'force') {
-        addPending(modId, appId)
-        if (action === 'subscribe') addToSubs(appId, modId)
-      }
-      if (action === 'unsubscribe') removeFromSubs(appId, modId)
-      setTimeout(() => void pollRemote(action), 5_000)
-    }
-    broadcast('action-done', { action, appId, modId, ok: result.ok, error: result.error })
-    broadcastPoke('action', { action, modId, ok: result.ok })
-    broadcastPoke('state')
-    res.status(result.ok ? 200 : 502).json(result)
+    submitJob(res, action as ActionKind, appId, modId)
   })
 
-  app.get('/api/browse/:appId', async (req, res) => {
-    // Stage-B replaces this with POST /api/browse/:appId + sort-enum validation
-    // and the helper browse session lifecycle.
+  app.get('/api/actions/:id', (req, res) => {
+    const job = getJob(String(req.params.id))
+    if (!job) {
+      res.status(404).json({ error: 'unknown action' })
+      return
+    }
+    res.json(job)
+  })
+
+  app.post('/api/sync/:appId', (req, res) => {
     const appId = Number(req.params.appId)
     if (!Number.isInteger(appId) || appId <= 0) {
       res.status(400).json({ error: 'bad appId' })
       return
     }
-    const page = String(Math.max(1, Number(req.query.page) || 1))
-    const sort = String(req.query.sort ?? 'trend')
-    const q = String(req.query.q ?? '')
-    const result = await trackHelper(() => runHelper('browse', appId, [page, sort, q]))
-    res.status(result.ok ? 200 : 502).json(result)
+    submitJob(res, 'sync', appId)
   })
+
+  app.post('/api/sync', (_req, res) => {
+    submitJob(res, 'syncAll', 0)
+  })
+
+  // ------------------------------------------------------------ browse
+
+  // POST — a helper-spawning endpoint must never be a cacheable/prefetchable GET.
+  app.post('/api/browse/:appId', async (req, res) => {
+    const appId = Number(req.params.appId)
+    if (!Number.isInteger(appId) || appId <= 0) {
+      res.status(400).json({ error: 'bad appId' })
+      return
+    }
+    const body = (req.body ?? {}) as Record<string, unknown>
+    if (body.q !== undefined && typeof body.q !== 'string') {
+      res.status(400).json({ error: 'bad q' })
+      return
+    }
+    const q = typeof body.q === 'string' ? body.q.trim().slice(0, 200) : ''
+    const sortKey = body.sort === undefined ? (q ? 'relevance' : 'trend7d') : String(body.sort)
+    const sort = BROWSE_SORTS[sortKey]
+    if (!sort) {
+      res.status(400).json({ error: 'bad sort', allowed: Object.keys(BROWSE_SORTS) })
+      return
+    }
+    if (sort.requiresQ && q === '') {
+      res.status(400).json({ error: 'sort=relevance requires q' })
+      return
+    }
+    if (!sort.requiresQ && q !== '') {
+      res.status(400).json({ error: 'q is only valid with sort=relevance' })
+      return
+    }
+    const page = body.page === undefined ? 1 : Number(body.page)
+    if (!Number.isInteger(page) || page < 1 || page > BROWSE_MAX_PAGE) {
+      res.status(400).json({ error: `page must be 1..${BROWSE_MAX_PAGE}` })
+      return
+    }
+    hub.steamRunning = isSteamRunning()
+    if (!hub.steamRunning) {
+      res.status(409).json({ error: 'steam_not_running' })
+      return
+    }
+    try {
+      const result = await runWithSession(appId, s =>
+        s.request(
+          { op: 'browse', page, queryType: sort.queryType, trendDays: sort.trendDays, q },
+          60_000,
+        ),
+      )
+      if (!result.ok) {
+        res.status(502).json({ error: result.error ?? 'browse failed' })
+        return
+      }
+      // server-side cross-reference against account set + ACF (must-fix 8)
+      const acf = hub.acfByApp.get(appId)
+      const items = (Array.isArray(result.items) ? result.items : []).map(raw => {
+        const item = raw as Record<string, unknown>
+        const id = String(item.id ?? '')
+        return {
+          ...item,
+          subscribed: accountOf(id, appId)?.subscribed ?? false,
+          installed: acf?.has(id) ?? false,
+        }
+      })
+      const total = typeof result.total === 'number' ? result.total : items.length
+      res.json({ items, page, perPage: BROWSE_PER_PAGE, total, capped: total > BROWSE_RESULT_CAP })
+    } catch (e) {
+      if (e instanceof HelperInitError) {
+        res.status(502).json({ error: 'helper_init_failed', detail: e.message })
+        return
+      }
+      res.status(502).json({ error: String(e instanceof Error ? e.message : e) })
+    }
+  })
+
+  // ------------------------------------------------------------ settings
 
   // PATCH semantics: whitelist keys, prototype-pollution rejection, clamped poll
   // interval, per-field 422 errors, response echoes applied settings (must-fix 19).

@@ -9,7 +9,6 @@ import { EXPAND, useReducedMotionSafe } from '../../motion'
 import { useHub } from '../../store'
 import type { ChangelogEntry } from '../../types'
 import { absDateTime } from '../../util'
-import { useLocalT } from './local'
 
 interface CacheRecord {
   entries: ChangelogEntry[]
@@ -32,7 +31,7 @@ function fetchHead(modId: string): Promise<CacheRecord> {
       const rec: CacheRecord = {
         entries: page.entries,
         hasMore: page.hasMore,
-        unavailable: page.status === 'unavailable',
+        unavailable: page.status === 'unavailable' || page.status === 'error',
       }
       cache.set(modId, rec)
       return rec
@@ -80,7 +79,6 @@ export function ChangelogBlock({
   active: boolean
 }): ReactNode {
   const { t, lang } = useHub()
-  const lt = useLocalT()
   const expand = useReducedMotionSafe(EXPAND)
   const [record, setRecord] = useState<CacheRecord | null>(() => cache.get(modId) ?? null)
   const [open, setOpen] = useState(false)
@@ -115,7 +113,7 @@ export function ChangelogBlock({
         const next: CacheRecord = {
           entries: merged,
           hasMore: page.hasMore,
-          unavailable: page.status === 'unavailable',
+          unavailable: page.status === 'unavailable' || page.status === 'error',
         }
         cache.set(modId, next)
         setRecord(next)
@@ -150,7 +148,7 @@ export function ChangelogBlock({
         type="button"
         onClick={() => setOpen(o => !o)}
         aria-expanded={open}
-        aria-label={open ? lt('updates.collapse') : lt('updates.expand')}
+        aria-label={open ? t('updates.collapse') : t('updates.expand')}
         className="group/cl flex w-full cursor-pointer items-start gap-[8px] text-left"
       >
         <span className="min-w-0 flex-1">
