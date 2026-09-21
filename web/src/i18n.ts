@@ -75,12 +75,12 @@ const dict = {
   },
   'toast.copied': { en: 'Copied {t}', zh: '已复制 {t}' },
   'toast.steamNotRunning': {
-    en: 'Steam is not running — start Steam and retry.',
-    zh: 'Steam 未运行——请启动 Steam 后重试。',
+    en: 'Steam is not running. Start Steam and retry.',
+    zh: 'Steam 未运行，请启动 Steam 后重试。',
   },
 
   // inline confirm
-  'confirm.unsubscribe': { en: 'Confirm — unsubscribe?', zh: '确认退订？' },
+  'confirm.unsubscribe': { en: 'Confirm unsubscribe?', zh: '确认退订？' },
   'confirm.generic': { en: 'Confirm?', zh: '确认？' },
 
   // detail sheet shell
@@ -113,8 +113,8 @@ const dict = {
   'updates.title': { en: 'Updates', zh: '更新动态' },
   'updates.subtitle': { en: 'What changed across your Paradox mods', zh: '你的P社模组最近都改了什么' },
   'updates.pendingBanner': {
-    en: '{n} mods updated on the Workshop — Steam has not fetched them yet',
-    zh: '{n} 个模组已在创意工坊更新——Steam 尚未拉取',
+    en: '{n} mods updated on the Workshop; Steam has not fetched them yet',
+    zh: '{n} 个模组已在创意工坊更新，Steam 尚未拉取',
   },
   'updates.allClear': { en: 'Everything is current. Steam has fetched every update.', zh: '一切都是最新的，Steam 已拉取全部更新。' },
   'updates.emptyFeed': { en: 'No updates detected yet. The tracker polls every {n} minutes.', zh: '还没有检测到更新。追踪器每 {n} 分钟轮询一次。' },
@@ -152,7 +152,7 @@ const dict = {
   'library.updatesPending': { en: '{n} updates pending', zh: '{n} 个待更新' },
   'library.syncHint': { en: 'Sync subscriptions from Steam (brief in-game flash)', zh: '从 Steam 同步订阅（会短暂显示游戏中）' },
   'library.synced': { en: 'Synced {t}', zh: '同步于 {t}' },
-  'library.neverSynced': { en: 'Local files only — sync to see account subscriptions', zh: '仅本地文件——同步后可见账户订阅' },
+  'library.neverSynced': { en: 'Local files only. Sync to see account subscriptions', zh: '仅本地文件，同步后可见账户订阅' },
   'library.empty': { en: 'No mods match.', zh: '没有匹配的模组。' },
   'library.totals': { en: '{n} mods · {s}', zh: '{n} 个模组 · {s}' },
   'library.totalsGames': { en: '{n} mods · {s} · {g} games', zh: '{n} 个模组 · {s} · {g} 款游戏' },
@@ -181,12 +181,12 @@ const dict = {
   // care flag — per-mod opt-in to update notifications
   'care.on': { en: 'Watch {title} for updates', zh: '关心《{title}》的更新' },
   'care.off': { en: 'Stop watching {title} for updates', zh: '不再关心《{title}》的更新' },
-  'care.tipOn': { en: 'Watched — updates are announced', zh: '已关心——更新会通知你' },
-  'care.tipOff': { en: 'Not watched — updates stay silent', zh: '未关心——更新不通知' },
+  'care.tipOn': { en: 'Watched, updates are announced', zh: '已关心，更新会通知你' },
+  'care.tipOff': { en: 'Not watched, updates stay silent', zh: '未关心，更新不通知' },
   'care.label': { en: 'Watch for updates', zh: '关心更新' },
   'care.explain': {
-    en: 'Only watched mods announce updates. The rest are still tracked — the library keeps showing what has an update waiting, it just does not interrupt you.',
-    zh: '只有「关心」的模组在更新时通知你。其余照常追踪——模组库仍会显示谁有更新待装，只是不再打扰你。',
+    en: 'Only watched mods announce updates. The rest are still tracked; the library keeps showing what has an update waiting, it just does not interrupt you.',
+    zh: '只有「关心」的模组在更新时通知你。其余照常追踪，模组库仍会显示谁有更新待装，只是不再打扰你。',
   },
 
   // browse
@@ -300,7 +300,7 @@ const dict = {
   'settings.status': { en: 'Tracker status', zh: '追踪器状态' },
   'settings.steamRunning': { en: 'Steam client', zh: 'Steam 客户端' },
   'settings.running': { en: 'running', zh: '运行中' },
-  'settings.notRunning': { en: 'not running — actions disabled', zh: '未运行——动作已禁用' },
+  'settings.notRunning': { en: 'not running, actions disabled', zh: '未运行，动作已禁用' },
   'settings.lastPoll': { en: 'Last poll', zh: '上次轮询' },
   'settings.helperState': { en: 'Helper', zh: '助手' },
   'settings.seq': { en: 'Event seq', zh: '事件序号' },
