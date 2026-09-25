@@ -17,36 +17,11 @@
       href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans+Condensed:wght@600&family=IBM+Plex+Sans:wght@400;500;600&family=Noto+Sans+SC:wght@400;500;600&display=swap"
       rel="stylesheet"
     />
-    <script>
-      // Pre-paint theme resolution: no flash, ever. Mirrors src/theme.ts.
-      ;(function () {
-        try {
-          var KEY = 'pmh.theme'
-          var mql = window.matchMedia('(prefers-color-scheme: dark)')
-          function mode() {
-            var saved = localStorage.getItem(KEY)
-            return saved === 'dark' || saved === 'light' ? saved : 'auto'
-          }
-          function apply() {
-            var m = mode()
-            var theme = m === 'auto' ? (mql.matches ? 'dark' : 'light') : m
-            var root = document.documentElement
-            root.setAttribute('data-theme', theme)
-            root.style.colorScheme = theme
-          }
-          apply()
-          // Live-follow the OS while preference is 'auto'.
-          var listen = mql.addEventListener
-            ? function (fn) { mql.addEventListener('change', fn) }
-            : function (fn) { mql.addListener(fn) }
-          listen(function () {
-            if (mode() === 'auto') apply()
-          })
-        } catch (e) {
-          document.documentElement.setAttribute('data-theme', 'dark')
-        }
-      })()
-    </script>
+    <!-- Pre-paint theme resolution (public/theme-init.js). A blocking classic
+         script, so it runs before first paint and before the module bundle;
+         a same-origin file because the CSP (script-src 'self') refuses
+         inline scripts. -->
+    <script src="/theme-init.js"></script>
   </head>
   <body>
     <div id="root"></div>
