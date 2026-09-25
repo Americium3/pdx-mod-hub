@@ -39,6 +39,12 @@ const PARSE_RETRY_MS = 250
 const PREFETCH_PER_POLL = 10
 const POLL_BACKOFF_CAP_MS = 2 * 3600_000
 const MAX_BACKOFF_DOUBLINGS = 5
+/**
+ * Ceiling on one whole poll. A healthy one takes seconds (ACF scan plus a few
+ * 8s-capped Web API chunks). Past this the poll is recorded as failed and
+ * abandoned, so no await inside it can hold `polling` and the timer forever.
+ */
+const POLL_DEADLINE_MS = 3 * 60_000
 
 interface PendingEntry {
   appId: number
@@ -571,6 +577,9 @@ export function metaFrom(r: RemoteFetchResult): RemoteMeta {
   }
 }
 
+/** Bumped per poll and on abandonment; a run holding an older value is dead. */
+let pollGen = 0
+
 /**
  * Poll the keyless Web API and diff against lastSeenRemoteTs (must-fix 1, 11, 21).
  * - 'updated' iff newTs > lastSeenRemoteTs AND lastSeenRemoteTs != null AND the
@@ -579,111 +588,138 @@ export function metaFrom(r: RemoteFetchResult): RemoteMeta {
  *   only the event is opt-in, so `state` stays accurate for every mod.
  * - result=9 => removed, banned flag => banned; last-known-good meta is never
  *   overwritten by non-ok responses; transport failure touches nothing.
+ *
+ * The whole poll runs under POLL_DEADLINE_MS. Before the deadline existed, one
+ * fetch that never settled (2026-09-24, 08:55) left `polling` true and the
+ * interval timer unarmed for 12 hours while every status read still said ok.
  */
 export async function pollRemote(reason: string): Promise<void> {
   if (hub.polling) return
   hub.polling = true
+  const gen = ++pollGen
+  let deadlineTimer: NodeJS.Timeout | undefined
+  const deadline = new Promise<'timeout'>(resolve => {
+    deadlineTimer = setTimeout(() => resolve('timeout'), POLL_DEADLINE_MS)
+  })
   try {
-    resolveLibraries()
-    await scanAcfs()
-    const ids = activeIds()
-    if (ids.length === 0) {
-      hub.lastPoll = { at: now(), status: 'ok' }
-      hub.pollFailures = 0
-      broadcastPoke('state')
-      return
+    const outcome = await Promise.race([runPoll(reason, gen).then(() => 'done' as const), deadline])
+    if (outcome === 'timeout') {
+      pollGen += 1 // abandon the stuck run: if it ever resumes it must not apply anything
+      console.error(`[hub] poll (${reason}) did not finish within ${POLL_DEADLINE_MS / 1000}s; abandoned`)
+      failPoll(`poll did not finish within ${POLL_DEADLINE_MS / 1000}s`)
     }
-    let fetched: Map<string, RemoteFetchResult>
-    try {
-      fetched = await fetchPublishedFileDetails(ids)
-    } catch (e) {
-      hub.pollFailures += 1
-      hub.lastPoll = {
-        at: now(),
-        status: 'failed',
-        error: String(e instanceof Error ? e.message : e),
-      }
-      broadcastPoke('state')
-      return
-    }
-    const nowTs = now()
-    const newEvents: NewFeedEvent[] = []
-    for (const id of ids) {
-      const r = fetched.get(id)
-      if (!r) continue // missing from response = transport gap, not removal
-      const rec = ensureRecord(id, r.appId ?? 0)
-      if (r.appId) rec.appId = r.appId
-      const prevStatus = rec.remote?.fetchStatus
-      const prevMeta = rec.remote?.meta
-      if (r.status === 'ok') {
-        const newTs = r.timeUpdated ?? 0
-        if (
-          newTs > 0 &&
-          rec.cared && // opt-in: an uncared update is tracked below, never announced
-          rec.lastSeenRemoteTs !== null &&
-          prevStatus === 'ok' &&
-          newTs > rec.lastSeenRemoteTs
-        ) {
-          const sizeDelta =
-            r.fileSize !== undefined && prevMeta?.fileSize !== undefined
-              ? r.fileSize - prevMeta.fileSize
-              : undefined
-          newEvents.push({
-            modId: id,
-            appId: rec.appId,
-            type: 'updated',
-            ts: newTs,
-            detectedAt: nowTs,
-            title: r.title ?? prevMeta?.title,
-            previewUrl: r.previewUrl ?? prevMeta?.previewUrl,
-            sizeDelta,
-          })
-        }
-        if (newTs > 0) rec.lastSeenRemoteTs = newTs
-        rec.remote = {
-          fetchStatus: 'ok',
-          remoteTs: newTs > 0 ? newTs : rec.remote?.remoteTs,
-          lastOkAt: nowTs,
-          meta: metaFrom(r),
-        }
-      } else if (r.status === 'removed' || r.status === 'banned') {
-        if (prevStatus === 'ok') {
-          newEvents.push({
-            modId: id,
-            appId: rec.appId,
-            type: r.status,
-            ts: nowTs,
-            detectedAt: nowTs,
-            title: prevMeta?.title ?? r.title,
-            previewUrl: prevMeta?.previewUrl ?? r.previewUrl,
-          })
-        }
-        rec.remote = {
-          fetchStatus: r.status,
-          remoteTs: rec.remote?.remoteTs ?? r.timeUpdated,
-          lastOkAt: rec.remote?.lastOkAt,
-          // banned responses still carry details; seed meta only if we had none
-          meta: prevMeta ?? (r.status === 'banned' ? metaFrom(r) : undefined),
-        }
-      } else {
-        // private / error: keep last-known-good meta + remoteTs untouched
-        rec.remote = { ...(rec.remote ?? {}), fetchStatus: r.status }
-      }
-    }
+  } catch (e) {
+    // A bug in the scan or the diff used to escape as an unhandled rejection
+    // and take the process down; record it like any other failed poll.
+    console.error(`[hub] poll (${reason}) threw:`, e)
+    failPoll(String(e instanceof Error ? e.message : e))
+  } finally {
+    clearTimeout(deadlineTimer)
+    hub.polling = false
+  }
+}
+
+function failPoll(error: string): void {
+  hub.pollFailures += 1
+  hub.lastPoll = { at: now(), status: 'failed', error }
+  broadcastPoke('state')
+}
+
+async function runPoll(reason: string, gen: number): Promise<void> {
+  const abandoned = (): boolean => gen !== pollGen
+  resolveLibraries()
+  await scanAcfs()
+  if (abandoned()) return
+  const ids = activeIds()
+  if (ids.length === 0) {
     hub.lastPoll = { at: now(), status: 'ok' }
     hub.pollFailures = 0
-    const added = addEvents(newEvents)
-    await persistMods()
-    broadcastPoke('state', { reason })
-    if (added.length > 0) broadcastPoke('feed')
-    if (hub.settings.changelogPrefetch) {
-      // Low-priority head prefetch through the global changelog queue (the
-      // queue enforces its own prefetch cap and circuit breaker).
-      const fresh = added.filter(e => e.type === 'updated').slice(0, PREFETCH_PER_POLL)
-      for (const ev of fresh) prefetchChangelog(ev.modId, ev.ts)
+    broadcastPoke('state')
+    return
+  }
+  let fetched: Map<string, RemoteFetchResult>
+  try {
+    fetched = await fetchPublishedFileDetails(ids)
+  } catch (e) {
+    if (!abandoned()) failPoll(String(e instanceof Error ? e.message : e))
+    return
+  }
+  if (abandoned()) return
+  const nowTs = now()
+  const newEvents: NewFeedEvent[] = []
+  for (const id of ids) {
+    const r = fetched.get(id)
+    if (!r) continue // missing from response = transport gap, not removal
+    const rec = ensureRecord(id, r.appId ?? 0)
+    if (r.appId) rec.appId = r.appId
+    const prevStatus = rec.remote?.fetchStatus
+    const prevMeta = rec.remote?.meta
+    if (r.status === 'ok') {
+      const newTs = r.timeUpdated ?? 0
+      if (
+        newTs > 0 &&
+        rec.cared && // opt-in: an uncared update is tracked below, never announced
+        rec.lastSeenRemoteTs !== null &&
+        prevStatus === 'ok' &&
+        newTs > rec.lastSeenRemoteTs
+      ) {
+        const sizeDelta =
+          r.fileSize !== undefined && prevMeta?.fileSize !== undefined
+            ? r.fileSize - prevMeta.fileSize
+            : undefined
+        newEvents.push({
+          modId: id,
+          appId: rec.appId,
+          type: 'updated',
+          ts: newTs,
+          detectedAt: nowTs,
+          title: r.title ?? prevMeta?.title,
+          previewUrl: r.previewUrl ?? prevMeta?.previewUrl,
+          sizeDelta,
+        })
+      }
+      if (newTs > 0) rec.lastSeenRemoteTs = newTs
+      rec.remote = {
+        fetchStatus: 'ok',
+        remoteTs: newTs > 0 ? newTs : rec.remote?.remoteTs,
+        lastOkAt: nowTs,
+        meta: metaFrom(r),
+      }
+    } else if (r.status === 'removed' || r.status === 'banned') {
+      if (prevStatus === 'ok') {
+        newEvents.push({
+          modId: id,
+          appId: rec.appId,
+          type: r.status,
+          ts: nowTs,
+          detectedAt: nowTs,
+          title: prevMeta?.title ?? r.title,
+          previewUrl: prevMeta?.previewUrl ?? r.previewUrl,
+        })
+      }
+      rec.remote = {
+        fetchStatus: r.status,
+        remoteTs: rec.remote?.remoteTs ?? r.timeUpdated,
+        lastOkAt: rec.remote?.lastOkAt,
+        // banned responses still carry details; seed meta only if we had none
+        meta: prevMeta ?? (r.status === 'banned' ? metaFrom(r) : undefined),
+      }
+    } else {
+      // private / error: keep last-known-good meta + remoteTs untouched
+      rec.remote = { ...(rec.remote ?? {}), fetchStatus: r.status }
     }
-  } finally {
-    hub.polling = false
+  }
+  hub.lastPoll = { at: now(), status: 'ok' }
+  hub.pollFailures = 0
+  const added = addEvents(newEvents)
+  await persistMods()
+  broadcastPoke('state', { reason })
+  if (added.length > 0) broadcastPoke('feed')
+  if (hub.settings.changelogPrefetch) {
+    // Low-priority head prefetch through the global changelog queue (the
+    // queue enforces its own prefetch cap and circuit breaker).
+    const fresh = added.filter(e => e.type === 'updated').slice(0, PREFETCH_PER_POLL)
+    for (const ev of fresh) prefetchChangelog(ev.modId, ev.ts)
   }
 }
 

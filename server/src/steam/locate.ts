@@ -4,17 +4,26 @@ import path from 'node:path'
 import { parseVdf, vdfChild } from '../vdf.js'
 import type { LibraryInfo } from '../types.js'
 
-function regQuery(hive: string, key: string, value: string): string | null {
+// reg runs synchronously on the event loop, so it is capped: one that never
+// returns would otherwise freeze every HTTP request, the poll timer and the
+// watchers with it.
+const REG_TIMEOUT_MS = 5_000
+
+function regQueryRaw(hive: string, key: string, value: string): string | null {
   try {
-    const out = execFileSync('reg', ['query', `${hive}\\${key}`, '/v', value], {
+    return execFileSync('reg', ['query', `${hive}\\${key}`, '/v', value], {
       encoding: 'utf8',
       windowsHide: true,
+      timeout: REG_TIMEOUT_MS,
     })
-    const m = out.match(/REG_SZ\s+(.+)/)
-    return m ? m[1].trim() : null
   } catch {
-    return null
+    return null // missing key/value, or timed out
   }
+}
+
+function regQuery(hive: string, key: string, value: string): string | null {
+  const m = regQueryRaw(hive, key, value)?.match(/REG_SZ\s+(.+)/)
+  return m ? m[1].trim() : null
 }
 
 export function findSteamRoot(override?: string): string | null {
@@ -60,14 +69,22 @@ export function findLibraries(steamRoot: string): LibraryInfo[] {
   return [...out].map(([p, reachable]) => ({ path: p, reachable }))
 }
 
+/**
+ * Steam writes its PID to HKCU\Software\Valve\Steam\ActiveProcess and zeroes
+ * it on a clean exit; the liveness probe catches a PID left behind by a crash.
+ * This used to shell out to `tasklist`, which takes 5-10s on the owner's
+ * machine and blocked the event loop that long every minute.
+ */
 export function isSteamRunning(): boolean {
+  const m = regQueryRaw('HKCU', 'Software\\Valve\\Steam\\ActiveProcess', 'pid')?.match(
+    /REG_DWORD\s+0x([0-9a-f]+)/i,
+  )
+  const pid = m ? Number.parseInt(m[1], 16) : 0
+  if (!pid) return false
   try {
-    const out = execFileSync('tasklist', ['/FI', 'IMAGENAME eq steam.exe', '/FO', 'CSV', '/NH'], {
-      encoding: 'utf8',
-      windowsHide: true,
-    })
-    return out.toLowerCase().includes('steam.exe')
-  } catch {
-    return false
+    process.kill(pid, 0) // signal 0: existence check only
+    return true
+  } catch (e) {
+    return (e as NodeJS.ErrnoException).code === 'EPERM' // alive, just not ours to signal
   }
 }

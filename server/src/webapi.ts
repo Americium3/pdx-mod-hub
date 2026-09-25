@@ -1,3 +1,4 @@
+import { fetchWithDeadline } from './net.js'
 import type { RemoteFetchStatus } from './types.js'
 
 const ENDPOINT = 'https://api.steampowered.com/ISteamRemoteStorage/GetPublishedFileDetails/v1/'
@@ -39,7 +40,8 @@ function statusOf(result: number, banned: boolean): RemoteFetchStatus {
 }
 
 /**
- * Keyless batch endpoint, chunked ~100 ids/request, 8s timeout per request.
+ * Keyless batch endpoint, chunked ~100 ids/request, 8s hard deadline per
+ * request (headers and body together).
  * Responses are mapped BY publishedfileid: an id missing from the returned map
  * is a transport gap and must leave the caller's state untouched (never treated
  * as removal). A failed chunk throws — the whole poll counts as failed and no
@@ -54,15 +56,12 @@ export async function fetchPublishedFileDetails(
     const body = new URLSearchParams()
     body.set('itemcount', String(chunk.length))
     chunk.forEach((id, i) => body.set(`publishedfileids[${i}]`, id))
-    const res = await fetch(ENDPOINT, {
-      method: 'POST',
-      body,
-      signal: AbortSignal.timeout(TIMEOUT_MS),
+    const json = await fetchWithDeadline(ENDPOINT, { method: 'POST', body }, TIMEOUT_MS, async res => {
+      if (!res.ok) throw new Error(`GetPublishedFileDetails HTTP ${res.status}`)
+      return (await res.json()) as {
+        response?: { publishedfiledetails?: Array<Record<string, unknown>> }
+      }
     })
-    if (!res.ok) throw new Error(`GetPublishedFileDetails HTTP ${res.status}`)
-    const json = (await res.json()) as {
-      response?: { publishedfiledetails?: Array<Record<string, unknown>> }
-    }
     for (const d of json.response?.publishedfiledetails ?? []) {
       const id = String(d.publishedfileid ?? '')
       if (!id) continue

@@ -20,14 +20,15 @@ PDX Mod Hub is a local web app for Windows. A small Node.js server scans your St
 | Concern | Mechanism |
 | --- | --- |
 | Which games / mods you have | Local Steam files: `libraryfolders.vdf`, `appmanifest_*.acf`, `appworkshop_<appid>.acf` (read-only) |
-| Update detection | Keyless batch `ISteamRemoteStorage/GetPublishedFileDetails` polls (default every 5 min), diffed against the last seen `time_updated`, not against Steam's own `NeedsUpdate` flag, which is demonstrably stale |
+| Update detection | Keyless batch `ISteamRemoteStorage/GetPublishedFileDetails` polls (default every 5 min), diffed against the last seen `time_updated`, not against Steam's own `NeedsUpdate` flag, which is demonstrably stale. Each request has an 8 s deadline and the whole poll a 3 min one; a poll that overruns is recorded as failed and the next one runs on schedule |
 | Watched vs tracked | The diff above runs for **every** mod and always advances `lastSeenRemoteTs`, so per-mod state stays accurate. The watched flag (`PATCH /api/mods/:id {cared}`, persisted in `mods.json`, absent = not watched) gates only whether that diff *emits an event* |
 | Change notes | `steamcommunity.com/sharedfiles/filedetails/changelog/<id>` scraping through one global throttled queue (4 s spacing, 429 backoff, circuit breaker), sanitized before caching |
 | Download completion | `fs.watch` on the workshop directories (Steam replaces ACFs by rename, so the files themselves cannot be watched) plus a 60 s stat backstop; mod state only flips when Steam's own files change |
 | Subscribe / unsubscribe / force download / browse / sync | A `steamworks.js` helper child process, one appid at a time; every op (actions, browse, sync) runs through a single persistent session per appid. Note: while a helper runs, Steam shows you as "In-Game" for that title; sessions close after 60 s idle (10 min hard cap), so a burst of actions or Browse paging costs one flash, not one per click |
+| Steam running? | The PID Steam records under `HKCU\Software\Valve\Steam\ActiveProcess`, checked for liveness. Actions that need the helper are refused while it reads 0 |
 | Mod art | `/api/img` proxy with SSRF hardening (host allowlist, DNS pinning, magic-byte sniffing) and a 500 MB LRU disk cache |
 
-The server binds to `127.0.0.1` only and defends the localhost surface: Host/Origin allowlists, a custom `X-PMH` header on API routes, CSP, sanitized BBCode/changelog HTML, prototype-pollution-safe settings.
+The server binds to `127.0.0.1` only and defends the localhost surface: Host/Origin allowlists, a custom `X-PMH` header on API routes, CSP, sanitized BBCode/changelog HTML, prototype-pollution-safe settings. The CSP allows only same-origin scripts, which is why the pre-paint theme script is `web/public/theme-init.js` and not inline.
 
 ## Requirements
 

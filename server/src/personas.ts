@@ -3,6 +3,7 @@ import * as cheerio from 'cheerio'
 import { DATA_DIR } from './config.js'
 import { hub } from './hub.js'
 import { hostAllowed } from './images.js'
+import { fetchWithDeadline } from './net.js'
 import { readJson, writeJson } from './store.js'
 
 // SteamID64 -> persona name + avatar resolution for Browse/Detail author display.
@@ -214,13 +215,16 @@ function safeAvatarUrl(raw: string): string | undefined {
 }
 
 async function resolveXml(id64: string): Promise<void> {
-  const res = await fetch(`https://steamcommunity.com/profiles/${id64}/?xml=1`, {
-    headers: { 'User-Agent': BROWSER_UA },
-    signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
-  })
-  if (res.status === 429) throw new Error('rate limited')
-  if (!res.ok) throw new Error(`profile xml HTTP ${res.status}`)
-  const xml = await res.text()
+  const xml = await fetchWithDeadline(
+    `https://steamcommunity.com/profiles/${id64}/?xml=1`,
+    { headers: { 'User-Agent': BROWSER_UA } },
+    REQUEST_TIMEOUT_MS,
+    async res => {
+      if (res.status === 429) throw new Error('rate limited')
+      if (!res.ok) throw new Error(`profile xml HTTP ${res.status}`)
+      return res.text()
+    },
+  )
   const $ = cheerio.load(xml, { xmlMode: true })
   const name = $('steamID').first().text().trim()
   const avatar = $('avatarMedium').first().text().trim()
@@ -240,11 +244,12 @@ async function resolveWithKey(key: string, ids: string[]): Promise<void> {
   const url =
     'https://api.steampowered.com/ISteamUser/GetPlayerSummaries/v2/' +
     `?key=${encodeURIComponent(key)}&steamids=${ids.join(',')}`
-  const res = await fetch(url, { signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) })
-  if (!res.ok) throw new Error(`GetPlayerSummaries HTTP ${res.status}`)
-  const json = (await res.json()) as {
-    response?: { players?: Array<{ steamid?: string; personaname?: string; avatarmedium?: string }> }
-  }
+  const json = await fetchWithDeadline(url, {}, REQUEST_TIMEOUT_MS, async res => {
+    if (!res.ok) throw new Error(`GetPlayerSummaries HTTP ${res.status}`)
+    return (await res.json()) as {
+      response?: { players?: Array<{ steamid?: string; personaname?: string; avatarmedium?: string }> }
+    }
+  })
   // Shape-level failures must hit the breaker (ids stay uncached, retried later)
   // instead of negative-caching the whole batch off a malformed response.
   const players = json.response?.players
