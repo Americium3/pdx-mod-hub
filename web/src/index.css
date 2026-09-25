@@ -39,25 +39,7 @@
   --accent-tint: rgba(255, 180, 84, 0.1);
   --focus-halo: rgba(255, 180, 84, 0.22);
 
-  /* Mod states */
-  --state-pending: #ffb454;
-  --state-pending-tint: rgba(255, 180, 84, 0.1);
-  --state-pending-dim: rgba(255, 180, 84, 0.45);
-  --state-fetched: #55c186;
-  --state-downloading: #5cb3cf;
-  --state-uptodate: rgba(233, 238, 242, 0.28);
-  --state-orphaned: #8b9bb0;
-  --state-error: #e0564f;
-
-  /* Per-game heraldic hues */
-  --game-hoi4: #8c9baa;
-  --game-stellaris: #4fa8c2;
-  --game-vic3: #c79a55;
-  --game-ck3: #c25b54;
-  --game-eu4: #4f9e7a;
-  --game-eu5: #7c8f5a;
-  --game-aow4: #9b7fc2;
-  --game-millennia: #a88f6e;
+  /* Mod states and per-game hues: see the shared block below */
 
   /* Elevation: dark carries elevation via bg step + hairline + edge highlight */
   --shadow-card: inset 0 1px 0 rgba(255, 255, 255, 0.04);
@@ -81,6 +63,33 @@
   --grain-blend: normal;
   --skeleton-base: rgba(255, 255, 255, 0.05);
   --skeleton-sheen: rgba(255, 255, 255, 0.06);
+}
+
+/* Dark-theme state and game hues. `.night-side` puts them back on anything
+   laid over Steam art: the art keeps its dark base and scrim in both themes
+   (DESIGN_SPEC §2), so a stamp or game pill sitting on it has to read
+   light-on-dark even when the page around it is light. */
+:root[data-theme='dark'],
+.night-side {
+  /* Mod states */
+  --state-pending: #ffb454;
+  --state-pending-tint: rgba(255, 180, 84, 0.1);
+  --state-pending-dim: rgba(255, 180, 84, 0.45);
+  --state-fetched: #55c186;
+  --state-downloading: #5cb3cf;
+  --state-uptodate: rgba(233, 238, 242, 0.28);
+  --state-orphaned: #8b9bb0;
+  --state-error: #e0564f;
+
+  /* Per-game heraldic hues */
+  --game-hoi4: #8c9baa;
+  --game-stellaris: #4fa8c2;
+  --game-vic3: #c79a55;
+  --game-ck3: #c25b54;
+  --game-eu4: #4f9e7a;
+  --game-eu5: #7c8f5a;
+  --game-aow4: #9b7fc2;
+  --game-millennia: #a88f6e;
 }
 
 :root[data-theme='light'] {

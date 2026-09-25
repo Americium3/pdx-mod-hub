@@ -44,17 +44,21 @@ const KEY: Record<StampState, MsgKey> = {
  * transparent fill, 6px dot (breathing only while AWAITING).
  * `punch` fires the STAMP thunk (new SSE update-event arrival only);
  * ordinary state changes crossfade quietly in 120ms.
+ * `onArt` is for stamps laid over Steam art: they take the dark-theme state
+ * colours in both themes, because the art under them is always dark.
  */
 export function Stamp({
   state,
   ts,
   punch = false,
+  onArt = false,
   className,
 }: {
   state: StampState
   /** epoch seconds for FETCHED hh:mm / ORPHANED as-of hh:mm */
   ts?: number
   punch?: boolean
+  onArt?: boolean
   className?: string
 }): ReactNode {
   const { lang } = useHub()
@@ -75,7 +79,7 @@ export function Stamp({
         animate={{ opacity: 1, scale: 1, rotate: 0 }}
         exit={{ opacity: 0, transition: { duration: DUR.stampSwap } }}
         transition={punch ? thunk : { duration: DUR.stampSwap }}
-        className={`inline-flex items-center gap-[6px] rounded-chip border px-[6px] py-[2px] font-mono text-[10px] font-medium uppercase tracking-[0.08em] whitespace-nowrap ${className ?? ''}`}
+        className={`inline-flex items-center gap-[6px] rounded-chip border px-[6px] py-[2px] font-mono text-[10px] font-medium uppercase tracking-[0.08em] whitespace-nowrap ${onArt ? 'night-side' : ''} ${className ?? ''}`}
         style={{ borderColor: color, color }}
         data-stamp={state}
       >

@@ -221,14 +221,14 @@ function DetailContent({ modId }: { modId: string }): ReactNode {
         >
           <div className="flex h-full flex-col justify-between p-[12px]">
             <div className="flex justify-end">
-              {stamp ? <Stamp state={stamp} ts={stampTs} /> : null}
+              {stamp ? <Stamp state={stamp} ts={stampTs} onArt /> : null}
             </div>
             <div className="flex items-end justify-between gap-[10px]">
               {/* Text over art is always light-on-dark in both themes. */}
               <span className="voice-title line-clamp-2 min-w-0" style={{ color: '#E9EEF2' }}>
                 {title}
               </span>
-              {appId !== undefined ? <GamePill appId={appId} className="mb-[2px] shrink-0" /> : null}
+              {appId !== undefined ? <GamePill appId={appId} onArt className="mb-[2px] shrink-0" /> : null}
             </div>
           </div>
         </ImageFrame>
