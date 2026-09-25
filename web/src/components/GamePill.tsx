@@ -3,21 +3,24 @@ import { gameColor, gameShort } from '../util'
 
 /**
  * The only pills allowed in the app: bordered per-game tags —
- * heraldic hue text + border, no fill.
+ * heraldic hue text + border, no fill. `onArt` keeps the dark-theme hue over
+ * Steam art in both themes (the art under it is always dark).
  */
 export function GamePill({
   appId,
   name,
+  onArt = false,
   className,
 }: {
   appId: number
   name?: string
+  onArt?: boolean
   className?: string
 }): ReactNode {
   const color = gameColor(appId, name)
   return (
     <span
-      className={`inline-flex items-center rounded-chip border px-[6px] py-[1px] font-mono text-[11px] leading-[16px] whitespace-nowrap ${className ?? ''}`}
+      className={`inline-flex items-center rounded-chip border px-[6px] py-[1px] font-mono text-[11px] leading-[16px] whitespace-nowrap ${onArt ? 'night-side' : ''} ${className ?? ''}`}
       style={{ borderColor: color, color }}
     >
       {gameShort(appId, name)}

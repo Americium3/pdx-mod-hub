@@ -50,7 +50,7 @@ const livePids = new Set<number>()
 
 function killTree(pid: number): void {
   try {
-    spawnSync('taskkill', ['/PID', String(pid), '/T', '/F'], { windowsHide: true })
+    spawnSync('taskkill', ['/PID', String(pid), '/T', '/F'], { windowsHide: true, timeout: 5_000 })
   } catch {
     // best-effort
   }

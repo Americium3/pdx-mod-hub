@@ -230,7 +230,7 @@ export function FeedCard({
               {title}
             </span>
             <span className="flex items-center gap-[8px] pb-[1px]">
-              <GamePill appId={event.appId} name={gameName} />
+              <GamePill appId={event.appId} name={gameName} onArt />
               <span className="voice-mono-sm" style={{ color: 'rgba(233,238,242,0.64)' }}>
                 {t('updates.updatedAt', { t: clockTime(event.ts) })}
               </span>
@@ -242,6 +242,7 @@ export function FeedCard({
             state={stampState}
             ts={stampTs}
             punch={fresh && event.type === 'update'}
+            onArt
             className="absolute top-[8px] right-[8px] bg-[rgba(10,12,14,0.55)]"
           />
         ) : null}

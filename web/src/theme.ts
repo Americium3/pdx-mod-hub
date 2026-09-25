@@ -1,6 +1,7 @@
 // Three-state theme: auto (follows OS) / dark / light.
 // Applied as data-theme="dark|light" + color-scheme on <html>; the CSS
-// variable sheet switches on it. Mirrors the pre-paint script in index.html.
+// variable sheet switches on it. Mirrors the pre-paint script in
+// public/theme-init.js.
 export type ThemeMode = 'auto' | 'dark' | 'light'
 
 const KEY = 'pmh.theme'

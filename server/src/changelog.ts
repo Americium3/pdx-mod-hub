@@ -1,6 +1,7 @@
 import path from 'node:path'
 import * as cheerio from 'cheerio'
 import { DATA_DIR } from './config.js'
+import { fetchWithDeadline } from './net.js'
 import { sanitizeChangelogHtml } from './sanitize.js'
 import { readJson, writeJson } from './store.js'
 
@@ -300,16 +301,18 @@ interface FetchedPage {
 async function fetchPageFromSteam(modId: string, page: number): Promise<FetchedPage> {
   if (breakerOpen()) throw new ChangelogBreakerOpenError(breaker.host)
   const url = `https://steamcommunity.com/sharedfiles/filedetails/changelog/${modId}?p=${page}`
-  let res: Response
   let html: string
   try {
-    res = await fetch(url, {
-      headers: { 'User-Agent': BROWSER_UA, 'Accept-Language': 'en-US,en;q=0.9' },
-      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
-    })
-    if (res.status === 429) throw new RateLimitedError('HTTP 429')
-    if (!res.ok) throw new Error(`changelog HTTP ${res.status}`)
-    html = await res.text()
+    html = await fetchWithDeadline(
+      url,
+      { headers: { 'User-Agent': BROWSER_UA, 'Accept-Language': 'en-US,en;q=0.9' } },
+      REQUEST_TIMEOUT_MS,
+      async res => {
+        if (res.status === 429) throw new RateLimitedError('HTTP 429')
+        if (!res.ok) throw new Error(`changelog HTTP ${res.status}`)
+        return res.text()
+      },
+    )
   } catch (e) {
     if (e instanceof RateLimitedError) {
       reportRateLimited()

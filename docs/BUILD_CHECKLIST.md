@@ -22,7 +22,7 @@ PHASE 2: EXTERNAL SURFACES
 15. PATCH /api/settings with schema clamps + data-folder migration flow.
 
 PHASE 3: FRONTEND SHELL & THEME
-16. Vite+React+TS+Tailwind v4+framer-motion scaffold; full dual-palette token sheet as CSS custom properties under data-theme; pre-paint inline theme script (localStorage 'pmh.theme', auto via matchMedia + live listener, color-scheme property); ◐/●/○ three-state control in ops bar + Settings row; View Transitions crossfade.
+16. Vite+React+TS+Tailwind v4+framer-motion scaffold; full dual-palette token sheet as CSS custom properties under data-theme; pre-paint theme script (same-origin web/public/theme-init.js, CSP-safe; localStorage 'pmh.theme', auto via matchMedia + live listener, color-scheme property); ◐/●/○ three-state control in ops bar + Settings row; View Transitions crossfade.
 17. Type system (Plex Sans/Condensed/Mono + Noto Sans SC stacks, tabular-nums everywhere, reserved min-widths for EN/zh); i18n dict (EN/zh-CN) with bilingual stamp strings; Intl-based time formatting from epochs.
 18. Shell: command rail (collapsible, game scoping, pending badge) + ops bar (POLL 10s-granularity split-flap, STEAM LED, LINK dot, AWAITING badge, refresh, theme control, ⌘K) incl. failure/stale states; SSE client with reconnect refetch (state + feed after_seq).
 19. Motion library: SNAP/MOVE/EXPAND/STAMP tokens, whole-app press physics, reduced-motion wrapper.
@@ -66,7 +66,7 @@ PHASE 5: HARDENING & POLISH
 19. Settings: PATCH with per-field 422s, clamped poll interval [60,3600], enum language, whitelist keys + prototype-pollution rejection, data-folder change as explicit pause-copy-verify-swap migration or 409 mid-action (MAJOR)
 20. JSON store: per-file async write mutex around read-modify-write, same-directory unique temp + fsync + rename with EPERM/EBUSY retries, .bak recovery on corrupt load (MAJOR)
 21. Poller resilience: chunked (~100 id) keyless batches, timeouts, exponential backoff, last-known cache on failure with lastPoll.status surfaced as staleness in the ops bar (MAJOR)
-22. Three-state theme (auto/dark/light) with the complete light palette implemented as data-theme-swapped CSS custom properties, pre-paint inline script, localStorage persistence, and light-mode image borders/dark scrims so Steam art never blows out (OWNER REQUIREMENT, v1 gate)
+22. Three-state theme (auto/dark/light) with the complete light palette implemented as data-theme-swapped CSS custom properties, pre-paint theme script, localStorage persistence, and light-mode image borders/dark scrims so Steam art never blows out (OWNER REQUIREMENT, v1 gate)
 
 ## Judge verdicts
 
